@@ -5,10 +5,12 @@ import '../../../routing/models/route_result.dart';
 class RouteStatsPanel extends StatelessWidget {
   const RouteStatsPanel({
     required this.route,
+    required this.averageSpeedKmh,
     super.key,
   });
 
   final RouteResult? route;
+  final double averageSpeedKmh;
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +19,10 @@ class RouteStatsPanel extends StatelessWidget {
     }
 
     final currentRoute = route!;
+    final calculatedDurationSeconds = _calculateDurationSeconds(
+      distanceMeters: currentRoute.distanceMeters,
+      averageSpeedKmh: averageSpeedKmh,
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -45,7 +51,11 @@ class RouteStatsPanel extends StatelessWidget {
                 ),
                 _StatItem(
                   label: 'Dauer',
-                  value: _formatDuration(currentRoute.durationSeconds),
+                  value: _formatDuration(calculatedDurationSeconds),
+                ),
+                _StatItem(
+                  label: 'Tempo',
+                  value: '${_formatSpeed(averageSpeedKmh)} km/h',
                 ),
                 _StatItem(
                   label: 'Straßenanteil',
@@ -100,6 +110,22 @@ class RouteStatsPanel extends StatelessWidget {
     }
 
     return '$hours h $minutes min';
+  }
+
+  int _calculateDurationSeconds({
+    required double distanceMeters,
+    required double averageSpeedKmh,
+  }) {
+    final metersPerSecond = averageSpeedKmh.clamp(1, 100) / 3.6;
+    return (distanceMeters / metersPerSecond).round();
+  }
+
+  String _formatSpeed(double value) {
+    if (value == value.roundToDouble()) {
+      return value.round().toString();
+    }
+
+    return value.toStringAsFixed(1);
   }
 
   String _formatPercent(double value) {

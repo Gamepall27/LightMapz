@@ -19,6 +19,8 @@ void main() {
       expect(controller.start, const LatLng(lat: 51.2277, lng: 6.7735));
       expect(controller.destination, const LatLng(lat: 51.4508, lng: 7.0131));
       expect(controller.roadAvoidanceStrictness, 50);
+      expect(controller.averageSpeedKmh, 18);
+      expect(controller.preferForestWays, isFalse);
       expect(controller.route, isNull);
       expect(controller.isLoading, isFalse);
     });
@@ -53,7 +55,39 @@ void main() {
       expect(controller.roadAvoidanceStrictness, 0);
     });
 
-    test('passes current request to RoutingService and stores result', () async {
+    test('clamps average speed to a realistic cycling range', () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.updateAverageSpeedKmh(60);
+      expect(controller.averageSpeedKmh, 45);
+
+      controller.updateAverageSpeedKmh(2);
+      expect(controller.averageSpeedKmh, 5);
+    });
+
+    test('clears stale route when forest preference changes', () async {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.calculateRoute();
+      expect(controller.route, isNotNull);
+
+      controller.updatePreferForestWays(true);
+
+      expect(controller.preferForestWays, isTrue);
+      expect(controller.route, isNull);
+      expect(controller.errorMessage, isNull);
+    });
+
+    test('passes current request to RoutingService and stores result',
+        () async {
       final service = _SuccessfulRoutingService();
       final controller = RoutePlannerController(
         routingService: service,
@@ -64,6 +98,7 @@ void main() {
       controller.updateStartAddress('Start Test');
       controller.updateDestinationAddress('Ziel Test');
       controller.updateRoadAvoidanceStrictness(75);
+      controller.updatePreferForestWays(true);
 
       await controller.calculateRoute();
 
@@ -73,6 +108,7 @@ void main() {
         const LatLng(lat: 50.2, lng: 7.2),
       );
       expect(service.lastRequest?.roadAvoidanceStrictness, 75);
+      expect(service.lastRequest?.preferForestWays, isTrue);
       expect(controller.route, service.result);
       expect(controller.isLoading, isFalse);
       expect(controller.errorMessage, isNull);

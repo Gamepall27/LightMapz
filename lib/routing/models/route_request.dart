@@ -5,6 +5,7 @@ class RouteRequest {
     required this.start,
     required this.destination,
     required this.roadAvoidanceStrictness,
+    this.preferForestWays = false,
     this.profile = 'bike',
   });
 
@@ -17,6 +18,7 @@ class RouteRequest {
   /// A future backend can translate this value into BRouter profile parameters,
   /// GraphHopper custom model weights, or a service-specific routing profile.
   final int roadAvoidanceStrictness;
+  final bool preferForestWays;
 
   Map<String, dynamic> toJson() {
     return {
@@ -24,6 +26,7 @@ class RouteRequest {
       'destination': destination.toJson(),
       'profile': profile,
       'roadAvoidanceStrictness': roadAvoidanceStrictness,
+      'preferForestWays': preferForestWays,
     };
   }
 }

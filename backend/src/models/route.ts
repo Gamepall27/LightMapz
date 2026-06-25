@@ -10,6 +10,7 @@ export type RouteRequest = {
   destination: LatLng;
   profile: BikeProfile;
   roadAvoidanceStrictness: number;
+  preferForestWays: boolean;
 };
 
 export type RouteSegment = {

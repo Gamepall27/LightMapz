@@ -10,7 +10,10 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: RouteStatsPanel(route: null),
+            body: RouteStatsPanel(
+              route: null,
+              averageSpeedKmh: 18,
+            ),
           ),
         ),
       );
@@ -39,6 +42,7 @@ void main() {
                 ],
                 segments: [],
               ),
+              averageSpeedKmh: 18,
             ),
           ),
         ),
@@ -46,7 +50,8 @@ void main() {
 
       expect(find.text('Routendaten'), findsOneWidget);
       expect(find.text('42.1 km'), findsOneWidget);
-      expect(find.text('3 h 0 min'), findsOneWidget);
+      expect(find.text('2 h 20 min'), findsOneWidget);
+      expect(find.text('18 km/h'), findsOneWidget);
       expect(find.text('8.5 %'), findsOneWidget);
       expect(find.text('71.2 %'), findsOneWidget);
       expect(find.text('20.3 %'), findsOneWidget);

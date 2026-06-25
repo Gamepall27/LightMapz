@@ -85,13 +85,15 @@ void main() {
         },
         'profile': 'bike',
         'roadAvoidanceStrictness': 75,
+        'preferForestWays': false,
       });
       expect(result.distanceMeters, 42100);
       expect(result.geometry, hasLength(2));
       expect(result.segments.single.roadClass, 'cycleway');
     });
 
-    test('throws a typed exception when the backend returns an error', () async {
+    test('throws a typed exception when the backend returns an error',
+        () async {
       statusCode = 500;
       final service = HttpRoutingService(
         baseUrl: Uri.parse('http://127.0.0.1:${server.port}'),

@@ -17,6 +17,7 @@ test("POST /route returns a route result", async () => {
       destination: { lat: 51.4508, lng: 7.0131 },
       profile: "bike",
       roadAvoidanceStrictness: 75,
+      preferForestWays: true,
     },
   });
 
@@ -49,6 +50,7 @@ test("POST /route validates request body", async () => {
       destination: { lat: 51.4508, lng: 7.0131 },
       profile: "car",
       roadAvoidanceStrictness: 150,
+      preferForestWays: "yes",
     },
   });
 

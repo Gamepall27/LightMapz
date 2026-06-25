@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
 import type { RoutingEngine } from "./engines/routing-engine.js";
 import type { GeocodingService } from "./geocoding/geocoding-service.js";
 import { NominatimGeocodingService } from "./geocoding/nominatim-geocoding-service.js";
@@ -17,6 +18,10 @@ export async function buildApp(
 ): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? true,
+  });
+
+  await app.register(cors, {
+    origin: true,
   });
 
   app.get("/health", async () => {

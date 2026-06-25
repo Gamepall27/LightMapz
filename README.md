@@ -12,10 +12,18 @@ Backend und Flutter-App gemeinsam starten:
 ./scripts/start_dev.sh
 ```
 
+Unter Windows:
+
+```powershell
+.\scripts\start_dev.ps1
+```
+
 Das Skript startet zuerst das lokale Routing-Backend auf
 `http://127.0.0.1:3000`, wartet auf `/health` und startet danach die
 Flutter-App auf macOS. Auf macOS wird eine Debug-App gebaut und geoeffnet;
 wenn du das App-Fenster schliesst, stoppt das Skript auch das Backend.
+Das PowerShell-Skript startet die App als Flutter-Webserver unter
+`http://127.0.0.1:8081`.
 
 Falls du ein anderes Geraet verwenden willst:
 

@@ -18,9 +18,11 @@ class RoutePlannerController extends ChangeNotifier {
 
   LatLng start = const LatLng(lat: 51.2277, lng: 6.7735);
   LatLng destination = const LatLng(lat: 51.4508, lng: 7.0131);
-  String startAddress = 'Düsseldorf Hauptbahnhof';
-  String destinationAddress = 'Essen Hauptbahnhof';
+  String startAddress = 'Kohlmeisenweg 18, 58507 Lüdenscheid';
+  String destinationAddress = 'Homertturm, 58518 Lüdenscheid';
   int roadAvoidanceStrictness = 50;
+  double averageSpeedKmh = 18;
+  bool preferForestWays = false;
 
   RouteResult? route;
   bool isLoading = false;
@@ -48,6 +50,19 @@ class RoutePlannerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateAverageSpeedKmh(double value) {
+    averageSpeedKmh = value.clamp(5, 45).toDouble();
+    errorMessage = null;
+    notifyListeners();
+  }
+
+  void updatePreferForestWays(bool value) {
+    preferForestWays = value;
+    route = null;
+    errorMessage = null;
+    notifyListeners();
+  }
+
   Future<void> calculateRoute() async {
     isLoading = true;
     errorMessage = null;
@@ -67,6 +82,7 @@ class RoutePlannerController extends ChangeNotifier {
           start: resolvedStart,
           destination: resolvedDestination,
           roadAvoidanceStrictness: roadAvoidanceStrictness,
+          preferForestWays: preferForestWays,
         ),
       );
     } on Exception catch (error) {

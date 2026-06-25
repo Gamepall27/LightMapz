@@ -9,6 +9,13 @@ class LightMapzApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final apiBaseUrl = Uri.parse(
+      const String.fromEnvironment(
+        'LIGHTMAPZ_API_BASE_URL',
+        defaultValue: 'http://127.0.0.1:3000',
+      ),
+    );
+
     return MaterialApp(
       title: 'LightMapz',
       debugShowCheckedModeBanner: false,
@@ -20,12 +27,8 @@ class LightMapzApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: RoutePlannerPage(
-        routingService: HttpRoutingService(
-          baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: 3000),
-        ),
-        geocodingService: HttpGeocodingService(
-          baseUrl: Uri(scheme: 'http', host: '127.0.0.1', port: 3000),
-        ),
+        routingService: HttpRoutingService(baseUrl: apiBaseUrl),
+        geocodingService: HttpGeocodingService(baseUrl: apiBaseUrl),
       ),
     );
   }

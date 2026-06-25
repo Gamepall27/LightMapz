@@ -49,6 +49,7 @@ function parseRouteRequest(body: unknown): ParseResult {
   const destination = parseLatLng(body.destination, "destination", errors);
   const profile = body.profile;
   const roadAvoidanceStrictness = body.roadAvoidanceStrictness;
+  const preferForestWays = body.preferForestWays;
 
   if (profile !== "bike") {
     errors.push('profile must be "bike".');
@@ -58,6 +59,13 @@ function parseRouteRequest(body: unknown): ParseResult {
     errors.push("roadAvoidanceStrictness must be a number from 0 to 100.");
   } else if (roadAvoidanceStrictness < 0 || roadAvoidanceStrictness > 100) {
     errors.push("roadAvoidanceStrictness must be between 0 and 100.");
+  }
+
+  if (
+    preferForestWays !== undefined &&
+    typeof preferForestWays !== "boolean"
+  ) {
+    errors.push("preferForestWays must be a boolean.");
   }
 
   if (errors.length > 0 || start === null || destination === null) {
@@ -71,6 +79,8 @@ function parseRouteRequest(body: unknown): ParseResult {
       destination,
       profile: "bike",
       roadAvoidanceStrictness: roadAvoidanceStrictness as number,
+      preferForestWays:
+        typeof preferForestWays === "boolean" ? preferForestWays : false,
     },
   };
 }

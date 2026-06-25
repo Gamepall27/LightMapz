@@ -9,6 +9,7 @@ const request: RouteRequest = {
   destination: { lat: 51.4508, lng: 7.0131 },
   profile: "bike",
   roadAvoidanceStrictness: 50,
+  preferForestWays: false,
 };
 
 test("MockRoutingEngine returns a route compatible with the mobile contract", async () => {

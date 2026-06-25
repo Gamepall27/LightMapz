@@ -47,6 +47,7 @@ function parseRouteRequest(body: unknown): ParseResult {
 
   const start = parseLatLng(body.start, "start", errors);
   const destination = parseLatLng(body.destination, "destination", errors);
+  const waypoints = parseWaypoints(body.waypoints, errors);
   const profile = body.profile;
   const roadAvoidanceStrictness = body.roadAvoidanceStrictness;
   const preferForestWays = body.preferForestWays;
@@ -68,7 +69,12 @@ function parseRouteRequest(body: unknown): ParseResult {
     errors.push("preferForestWays must be a boolean.");
   }
 
-  if (errors.length > 0 || start === null || destination === null) {
+  if (
+    errors.length > 0 ||
+    start === null ||
+    destination === null ||
+    waypoints === null
+  ) {
     return { ok: false, errors };
   }
 
@@ -77,12 +83,39 @@ function parseRouteRequest(body: unknown): ParseResult {
     value: {
       start,
       destination,
+      waypoints,
       profile: "bike",
       roadAvoidanceStrictness: roadAvoidanceStrictness as number,
       preferForestWays:
         typeof preferForestWays === "boolean" ? preferForestWays : false,
     },
   };
+}
+
+function parseWaypoints(
+  value: unknown,
+  errors: string[],
+): Array<{ lat: number; lng: number }> | null {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    errors.push("waypoints must be an array.");
+    return null;
+  }
+
+  const waypoints: Array<{ lat: number; lng: number }> = [];
+
+  for (let index = 0; index < value.length; index++) {
+    const waypoint = parseLatLng(value[index], `waypoints[${index}]`, errors);
+
+    if (waypoint !== null) {
+      waypoints.push(waypoint);
+    }
+  }
+
+  return waypoints;
 }
 
 function parseLatLng(

@@ -8,6 +8,7 @@ export type BikeProfile = "bike";
 export type RouteRequest = {
   start: LatLng;
   destination: LatLng;
+  waypoints: LatLng[];
   profile: BikeProfile;
   roadAvoidanceStrictness: number;
   preferForestWays: boolean;

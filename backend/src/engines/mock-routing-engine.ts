@@ -9,11 +9,13 @@ export class MockRoutingEngine implements RoutingEngine {
     request: RouteRequest,
     context: RoutingEngineContext,
   ): Promise<RouteResult> {
-    const geometry = buildDemoGeometry(request.start, request.destination);
-    const directDistance = estimateDistanceMeters(
+    const routePoints = [
       request.start,
+      ...request.waypoints,
       request.destination,
-    );
+    ];
+    const geometry = buildDemoGeometry(routePoints);
+    const directDistance = estimateRouteDistanceMeters(routePoints);
     const detourFactor = 1 + context.profileRules.bucket / 170;
     const distanceMeters = Math.round(directDistance * detourFactor);
     const durationSeconds = Math.round(distanceMeters / 3.9);
@@ -63,7 +65,26 @@ export class MockRoutingEngine implements RoutingEngine {
   }
 }
 
-function buildDemoGeometry(start: LatLng, destination: LatLng): LatLng[] {
+function buildDemoGeometry(routePoints: LatLng[]): LatLng[] {
+  const geometry: LatLng[] = [];
+
+  for (let index = 0; index < routePoints.length - 1; index++) {
+    const legGeometry = buildDemoLegGeometry(
+      routePoints[index],
+      routePoints[index + 1],
+    );
+
+    if (geometry.length === 0) {
+      geometry.push(...legGeometry);
+    } else {
+      geometry.push(...legGeometry.slice(1));
+    }
+  }
+
+  return geometry;
+}
+
+function buildDemoLegGeometry(start: LatLng, destination: LatLng): LatLng[] {
   const midLat = (start.lat + destination.lat) / 2;
   const midLng = (start.lng + destination.lng) / 2;
   const latOffset = (destination.lng - start.lng) * 0.08;
@@ -85,6 +106,19 @@ function buildDemoGeometry(start: LatLng, destination: LatLng): LatLng[] {
     },
     destination,
   ];
+}
+
+function estimateRouteDistanceMeters(routePoints: LatLng[]): number {
+  let distanceMeters = 0;
+
+  for (let index = 0; index < routePoints.length - 1; index++) {
+    distanceMeters += estimateDistanceMeters(
+      routePoints[index],
+      routePoints[index + 1],
+    );
+  }
+
+  return distanceMeters;
 }
 
 function estimateDistanceMeters(a: LatLng, b: LatLng): number {

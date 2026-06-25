@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lightmapz/features/route_planner/route_planner_controller.dart';
 import 'package:lightmapz/geocoding/geocoding_service.dart';
 import 'package:lightmapz/geocoding/models/geocode_result.dart';
+import 'package:lightmapz/navigation/navigation_service.dart';
 import 'package:lightmapz/routing/models/lat_lng.dart';
 import 'package:lightmapz/routing/models/route_request.dart';
 import 'package:lightmapz/routing/models/route_result.dart';
@@ -21,6 +24,7 @@ void main() {
       expect(controller.roadAvoidanceStrictness, 50);
       expect(controller.averageSpeedKmh, 18);
       expect(controller.preferForestWays, isFalse);
+      expect(controller.waypoints, isEmpty);
       expect(controller.route, isNull);
       expect(controller.isLoading, isFalse);
     });
@@ -39,6 +43,57 @@ void main() {
 
       expect(controller.route, isNull);
       expect(controller.errorMessage, isNull);
+    });
+
+    test('adds, updates and removes waypoints', () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.addWaypoint();
+      final waypointId = controller.waypoints.single.id;
+
+      controller.updateWaypointAddress(waypointId, 'Zwischenstopp Test');
+
+      expect(controller.waypoints.single.address, 'Zwischenstopp Test');
+      expect(controller.waypoints.single.point, isNull);
+
+      controller.removeWaypoint(waypointId);
+
+      expect(controller.waypoints, isEmpty);
+    });
+
+    test('moves waypoints up and down', () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.addWaypoint();
+      controller.updateWaypointAddress(
+        controller.waypoints[0].id,
+        'Zwischenstopp 1',
+      );
+      controller.addWaypoint();
+      controller.updateWaypointAddress(
+        controller.waypoints[1].id,
+        'Zwischenstopp 2',
+      );
+
+      final secondWaypointId = controller.waypoints[1].id;
+
+      controller.moveWaypointUp(secondWaypointId);
+
+      expect(controller.waypoints[0].address, 'Zwischenstopp 2');
+      expect(controller.waypoints[1].address, 'Zwischenstopp 1');
+
+      controller.moveWaypointDown(secondWaypointId);
+
+      expect(controller.waypoints[0].address, 'Zwischenstopp 1');
+      expect(controller.waypoints[1].address, 'Zwischenstopp 2');
     });
 
     test('clamps road avoidance strictness to 0 through 100', () {
@@ -97,6 +152,11 @@ void main() {
 
       controller.updateStartAddress('Start Test');
       controller.updateDestinationAddress('Ziel Test');
+      controller.addWaypoint();
+      controller.updateWaypointAddress(
+        controller.waypoints.single.id,
+        'Zwischenstopp Test',
+      );
       controller.updateRoadAvoidanceStrictness(75);
       controller.updatePreferForestWays(true);
 
@@ -107,6 +167,9 @@ void main() {
         service.lastRequest?.destination,
         const LatLng(lat: 50.2, lng: 7.2),
       );
+      expect(service.lastRequest?.waypoints, [
+        const LatLng(lat: 50.15, lng: 7.15),
+      ]);
       expect(service.lastRequest?.roadAvoidanceStrictness, 75);
       expect(service.lastRequest?.preferForestWays, isTrue);
       expect(controller.route, service.result);
@@ -130,12 +193,153 @@ void main() {
         contains('Die Route konnte nicht berechnet werden'),
       );
     });
+
+    test('uses map points without geocoding them', () async {
+      final service = _SuccessfulRoutingService();
+      final controller = RoutePlannerController(
+        routingService: service,
+        geocodingService: _ThrowingGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.setStartFromMap(const LatLng(lat: 51, lng: 7));
+      controller.addWaypointFromMap(const LatLng(lat: 51.1, lng: 7.1));
+      controller.setDestinationFromMap(const LatLng(lat: 51.2, lng: 7.2));
+
+      await controller.calculateRoute();
+
+      expect(service.lastRequest?.start, const LatLng(lat: 51, lng: 7));
+      expect(service.lastRequest?.waypoints, [
+        const LatLng(lat: 51.1, lng: 7.1),
+      ]);
+      expect(
+        service.lastRequest?.destination,
+        const LatLng(lat: 51.2, lng: 7.2),
+      );
+    });
+
+    test('starts navigation and updates live route stats', () async {
+      final navigationService = _FakeNavigationService();
+      navigationService.currentLocation = const NavigationLocation(
+        point: LatLng(lat: 51.2277, lng: 6.7735),
+        headingDegrees: 12,
+        speedMetersPerSecond: 5,
+      );
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+        navigationService: navigationService,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(navigationService.dispose);
+
+      await controller.calculateRoute();
+      await controller.startNavigation();
+
+      navigationService.addLocation(
+        const NavigationLocation(
+          point: LatLng(lat: 51.2277, lng: 6.7735),
+          headingDegrees: 42,
+          speedMetersPerSecond: 5,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.isNavigationActive, isTrue);
+      expect(
+        controller.currentLocation,
+        const LatLng(lat: 51.2277, lng: 6.7735),
+      );
+      expect(controller.currentHeadingDegrees, 42);
+      expect(controller.navigationStats, isNotNull);
+      expect(
+        controller.navigationStats!.remainingDistanceMeters,
+        greaterThan(0),
+      );
+    });
+
+    test('uses current location as start or destination', () async {
+      final navigationService = _FakeNavigationService()
+        ..currentLocation = const NavigationLocation(
+          point: LatLng(lat: 51.5, lng: 7.5),
+          headingDegrees: 20,
+        );
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+        navigationService: navigationService,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(navigationService.dispose);
+
+      await controller.setStartToCurrentLocation();
+
+      expect(controller.startAddress, 'Eigener Standort');
+      expect(controller.start, const LatLng(lat: 51.5, lng: 7.5));
+
+      navigationService.currentLocation = const NavigationLocation(
+        point: LatLng(lat: 51.6, lng: 7.6),
+      );
+      await controller.setDestinationToCurrentLocation();
+
+      expect(controller.destinationAddress, 'Eigener Standort');
+      expect(controller.destination, const LatLng(lat: 51.6, lng: 7.6));
+    });
+
+    test('remaining distance follows progress along the route', () async {
+      final navigationService = _FakeNavigationService()
+        ..currentLocation = const NavigationLocation(
+          point: LatLng(lat: 0, lng: 0.02),
+          speedMetersPerSecond: 10,
+        );
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+        navigationService: navigationService,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(navigationService.dispose);
+      controller.route = const RouteResult(
+        geometry: [
+          LatLng(lat: 0, lng: 0),
+          LatLng(lat: 0, lng: 0.01),
+          LatLng(lat: 0, lng: 0.03),
+        ],
+        distanceMeters: 3330,
+        durationSeconds: 333,
+        roadSharePercent: 0,
+        cyclewaySharePercent: 100,
+        pathSharePercent: 0,
+        warnings: [],
+        segments: [],
+      );
+
+      await controller.startNavigation();
+
+      expect(
+        controller.navigationStats!.remainingDistanceMeters,
+        lessThan(1700),
+      );
+      expect(
+        controller.navigationStats!.remainingDistanceMeters,
+        greaterThan(900),
+      );
+    });
   });
 }
 
 class _FakeGeocodingService implements GeocodingService {
   @override
   Future<List<GeocodeResult>> search(String query) async {
+    if (query.contains('Zwischenstopp')) {
+      return const [
+        GeocodeResult(
+          label: 'Zwischenstopp Test',
+          point: LatLng(lat: 50.15, lng: 7.15),
+        ),
+      ];
+    }
+
     if (query.contains('Ziel')) {
       return const [
         GeocodeResult(
@@ -151,6 +355,13 @@ class _FakeGeocodingService implements GeocodingService {
         point: LatLng(lat: 50.1, lng: 7.1),
       ),
     ];
+  }
+}
+
+class _ThrowingGeocodingService implements GeocodingService {
+  @override
+  Future<List<GeocodeResult>> search(String query) async {
+    throw Exception('geocoding should not be called');
   }
 }
 
@@ -184,5 +395,41 @@ class _FailingRoutingService implements RoutingService {
   @override
   Future<RouteResult> calculateRoute(RouteRequest request) async {
     throw Exception('network unavailable');
+  }
+}
+
+class _FakeNavigationService implements NavigationService {
+  final locationController = StreamController<NavigationLocation>.broadcast();
+  final headingController = StreamController<double?>.broadcast();
+  NavigationLocation? currentLocation;
+
+  @override
+  Future<void> ensureLocationPermission() async {}
+
+  @override
+  Future<NavigationLocation> getCurrentLocation() async {
+    return currentLocation ??
+        const NavigationLocation(
+          point: LatLng(lat: 51.2277, lng: 6.7735),
+        );
+  }
+
+  @override
+  Stream<NavigationLocation> getLocationStream() {
+    return locationController.stream;
+  }
+
+  @override
+  Stream<double?> getHeadingStream() {
+    return headingController.stream;
+  }
+
+  void addLocation(NavigationLocation location) {
+    locationController.add(location);
+  }
+
+  Future<void> dispose() async {
+    await locationController.close();
+    await headingController.close();
   }
 }

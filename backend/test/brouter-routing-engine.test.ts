@@ -8,6 +8,7 @@ import { RoutingProfileMapper } from "../src/profile/routing-profile-mapper.js";
 const request: RouteRequest = {
   start: { lat: 51.2277, lng: 6.7735 },
   destination: { lat: 51.4508, lng: 7.0131 },
+  waypoints: [],
   profile: "bike",
   roadAvoidanceStrictness: 50,
   preferForestWays: false,
@@ -32,6 +33,28 @@ test("BRouterRoutingEngine parses a real-way GeoJSON route", async () => {
     assert.equal(Math.round(result.cyclewaySharePercent), 33);
     assert.equal(Math.round(result.pathSharePercent), 33);
     assert.equal(Math.round(result.roadSharePercent), 33);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("BRouterRoutingEngine sends waypoints to BRouter", async () => {
+  const { server, baseUrl, requests } = await createBRouterStub();
+  const engine = new BRouterRoutingEngine(baseUrl, null);
+  const mapper = new RoutingProfileMapper();
+
+  try {
+    await engine.calculateRoute(
+      { ...request, waypoints: [{ lat: 51.3, lng: 6.9 }] },
+      {
+        profileRules: mapper.mapRoadAvoidanceStrictness(50),
+      },
+    );
+
+    assert.equal(
+      requests[0].searchParams.get("lonlats"),
+      "6.7735,51.2277|6.9,51.3|7.0131,51.4508",
+    );
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

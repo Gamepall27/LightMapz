@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lightmapz/features/route_planner/route_planner_page.dart';
 import 'package:lightmapz/geocoding/geocoding_service.dart';
 import 'package:lightmapz/geocoding/models/geocode_result.dart';
+import 'package:lightmapz/navigation/navigation_service.dart';
 import 'package:lightmapz/routing/models/lat_lng.dart';
 import 'package:lightmapz/routing/models/route_request.dart';
 import 'package:lightmapz/routing/models/route_result.dart';
@@ -34,8 +37,8 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -240));
       await tester.pump();
 
-      expect(find.text('10.0 km'), findsOneWidget);
-      expect(find.text('33 min'), findsOneWidget);
+      expect(find.text('10.0 km'), findsWidgets);
+      expect(find.text('33 min'), findsWidgets);
       expect(find.text('18 km/h'), findsOneWidget);
     });
 
@@ -84,6 +87,41 @@ void main() {
       expect(service.lastRequest?.preferForestWays, isTrue);
     });
 
+    testWidgets('adds a waypoint and sends it to the service', (tester) async {
+      final service = _PageTestRoutingService();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoutePlannerPage(
+            routingService: service,
+            geocodingService: _PageTestGeocodingService(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('add_waypoint_button')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('waypoint_waypoint_1_address_field')),
+          findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('waypoint_waypoint_1_address_field')),
+        'Zwischenstopp Test',
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+
+      await tester.drag(find.byType(ListView), const Offset(0, -280));
+      await tester.pump();
+      await tester.tap(find.text('Route berechnen'));
+      await tester.pump();
+
+      expect(service.lastRequest?.waypoints, [
+        const LatLng(lat: 50.15, lng: 7.15),
+      ]);
+    });
+
     testWidgets('shows address suggestions and fills the selected suggestion',
         (tester) async {
       await tester.pumpWidget(
@@ -117,6 +155,60 @@ void main() {
       expect(find.byKey(const Key('start_address_suggestions')), findsNothing);
     });
 
+    testWidgets('shows current location suggestion for an empty start field',
+        (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoutePlannerPage(
+            routingService: _PageTestRoutingService(),
+            geocodingService: _PageTestGeocodingService(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const Key('start_address_field')),
+        '',
+      );
+      await tester.tap(find.byKey(const Key('start_address_field')));
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('start_current_location_suggestion')),
+        findsOneWidget,
+      );
+      expect(find.text('Eigener Standort'), findsOneWidget);
+    });
+
+    testWidgets('hides planner controls while navigation is active',
+        (tester) async {
+      final navigationService = _PageTestNavigationService();
+      addTearDown(navigationService.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoutePlannerPage(
+            routingService: _PageTestRoutingService(),
+            geocodingService: _PageTestGeocodingService(),
+            navigationService: navigationService,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Route berechnen'));
+      await tester.pump();
+      await tester.tap(find.text('Starten'));
+      await tester.pump();
+
+      expect(find.text('Adressen'), findsNothing);
+      expect(find.text('Route berechnen'), findsNothing);
+      expect(find.byTooltip('Einstellungen'), findsNothing);
+      expect(find.text('Stoppen'), findsOneWidget);
+      expect(find.byKey(const Key('navigation_status_panel')), findsOneWidget);
+    });
+
     testWidgets('opens settings and recalculates duration from average speed',
         (tester) async {
       await tester.pumpWidget(
@@ -135,7 +227,7 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -240));
       await tester.pump();
 
-      expect(find.text('33 min'), findsOneWidget);
+      expect(find.text('33 min'), findsWidgets);
 
       await tester.tap(find.byTooltip('Einstellungen'));
       await tester.pumpAndSettle();
@@ -151,7 +243,7 @@ void main() {
       await tester.tap(find.text('Schließen'));
       await tester.pumpAndSettle();
 
-      expect(find.text('30 min'), findsOneWidget);
+      expect(find.text('30 min'), findsWidgets);
       expect(find.text('20 km/h'), findsOneWidget);
     });
   });
@@ -169,6 +261,15 @@ class _PageTestGeocodingService implements GeocodingService {
         GeocodeResult(
           label: 'Düsseldorf Altstadt',
           point: LatLng(lat: 51.2277, lng: 6.7735),
+        ),
+      ];
+    }
+
+    if (query.contains('Zwischenstopp')) {
+      return const [
+        GeocodeResult(
+          label: 'Zwischenstopp Test',
+          point: LatLng(lat: 50.15, lng: 7.15),
         ),
       ];
     }
@@ -213,5 +314,37 @@ class _PageTestRoutingService implements RoutingService {
       warnings: [],
       segments: [],
     );
+  }
+}
+
+class _PageTestNavigationService implements NavigationService {
+  final locationController = StreamController<NavigationLocation>.broadcast();
+  final headingController = StreamController<double?>.broadcast();
+
+  @override
+  Future<void> ensureLocationPermission() async {}
+
+  @override
+  Future<NavigationLocation> getCurrentLocation() async {
+    return const NavigationLocation(
+      point: LatLng(lat: 51.2277, lng: 6.7735),
+      headingDegrees: 25,
+      speedMetersPerSecond: 5,
+    );
+  }
+
+  @override
+  Stream<NavigationLocation> getLocationStream() {
+    return locationController.stream;
+  }
+
+  @override
+  Stream<double?> getHeadingStream() {
+    return headingController.stream;
+  }
+
+  Future<void> dispose() async {
+    await locationController.close();
+    await headingController.close();
   }
 }

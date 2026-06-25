@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../geocoding/geocoding_service.dart';
 import '../../map/map_view.dart';
+import '../../navigation/navigation_service.dart';
+import '../../routing/models/lat_lng.dart';
 import '../../routing/routing_service.dart';
 import 'route_planner_controller.dart';
 import 'widgets/address_input_panel.dart';
+import 'widgets/navigation_status_panel.dart';
 import 'widgets/road_avoidance_slider.dart';
 import 'widgets/route_stats_panel.dart';
 
@@ -12,11 +15,13 @@ class RoutePlannerPage extends StatefulWidget {
   const RoutePlannerPage({
     required this.routingService,
     required this.geocodingService,
+    this.navigationService = const DeviceNavigationService(),
     super.key,
   });
 
   final RoutingService routingService;
   final GeocodingService geocodingService;
+  final NavigationService navigationService;
 
   @override
   State<RoutePlannerPage> createState() => _RoutePlannerPageState();
@@ -24,6 +29,7 @@ class RoutePlannerPage extends StatefulWidget {
 
 class _RoutePlannerPageState extends State<RoutePlannerPage> {
   late final RoutePlannerController controller;
+  LatLng? selectedMapPoint;
 
   @override
   void initState() {
@@ -31,6 +37,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
     controller = RoutePlannerController(
       routingService: widget.routingService,
       geocodingService: widget.geocodingService,
+      navigationService: widget.navigationService,
     );
   }
 
@@ -42,96 +49,205 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('LightMapz'),
-        actions: [
-          IconButton(
-            tooltip: 'Einstellungen',
-            onPressed: _openSettings,
-            icon: const Icon(Icons.settings),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: AnimatedBuilder(
-          animation: controller,
-          builder: (context, _) {
-            return Column(
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final isNavigationActive = controller.isNavigationActive;
+
+        return Scaffold(
+          appBar: isNavigationActive
+              ? null
+              : AppBar(
+                  title: const Text('LightMapz'),
+                  actions: [
+                    IconButton(
+                      tooltip: 'Einstellungen',
+                      onPressed: _openSettings,
+                      icon: const Icon(Icons.settings),
+                    ),
+                  ],
+                ),
+          body: SafeArea(
+            child: Column(
               children: [
                 Expanded(
-                  child: MapView(
-                    start: controller.start,
-                    destination: controller.destination,
-                    routeGeometry: controller.route?.geometry ?? const [],
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: MapView(
+                          start: controller.start,
+                          destination: controller.destination,
+                          waypoints: controller.waypoints
+                              .map((waypoint) => waypoint.point)
+                              .whereType<LatLng>()
+                              .toList(),
+                          selectedPoint: selectedMapPoint,
+                          routeGeometry:
+                              controller.route?.geometry ?? const [],
+                          currentLocation: controller.currentLocation,
+                          currentHeadingDegrees:
+                              controller.currentHeadingDegrees,
+                          isNavigationActive:
+                              controller.isNavigationActive,
+                          onMapPointSelected: isNavigationActive
+                              ? null
+                              : _openMapPointActions,
+                        ),
+                      ),
+                      if (controller.displayedNavigationStats != null)
+                        Positioned(
+                          left: 12,
+                          top: 12,
+                          right: 12,
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: NavigationStatusPanel(
+                              stats: controller.displayedNavigationStats!,
+                              isNavigationActive:
+                                  controller.isNavigationActive,
+                            ),
+                          ),
+                        ),
+                      if (controller.route != null)
+                        Positioned(
+                          right: 12,
+                          bottom: 12,
+                          child: _NavigationStartButton(
+                            isActive: controller.isNavigationActive,
+                            isStarting: controller.isNavigationStarting,
+                            onPressed: () {
+                              if (controller.isNavigationActive) {
+                                controller.stopNavigation();
+                              } else {
+                                controller.startNavigation();
+                              }
+                            },
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * 0.52,
-                  ),
-                  child: Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    elevation: 8,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: [
-                          AddressInputPanel(
-                            startAddress: controller.startAddress,
-                            destinationAddress: controller.destinationAddress,
-                            geocodingService: widget.geocodingService,
-                            onStartAddressChanged:
-                                controller.updateStartAddress,
-                            onDestinationAddressChanged:
-                                controller.updateDestinationAddress,
-                          ),
-                          const SizedBox(height: 12),
-                          RoadAvoidanceSlider(
-                            value: controller.roadAvoidanceStrictness,
-                            onChanged: controller.updateRoadAvoidanceStrictness,
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton.icon(
-                            onPressed: controller.isLoading
-                                ? null
-                                : controller.calculateRoute,
-                            icon: controller.isLoading
-                                ? const SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.route),
-                            label: const Text('Route berechnen'),
-                          ),
-                          if (controller.errorMessage != null) ...[
+                if (!isNavigationActive)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.52,
+                    ),
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      elevation: 8,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            AddressInputPanel(
+                              startAddress: controller.startAddress,
+                              destinationAddress:
+                                  controller.destinationAddress,
+                              waypoints: controller.waypoints,
+                              geocodingService: widget.geocodingService,
+                              onStartAddressChanged:
+                                  controller.updateStartAddress,
+                              onDestinationAddressChanged:
+                                  controller.updateDestinationAddress,
+                              onAddWaypoint: controller.addWaypoint,
+                              onWaypointAddressChanged:
+                                  controller.updateWaypointAddress,
+                              onMoveWaypointUp: controller.moveWaypointUp,
+                              onMoveWaypointDown: controller.moveWaypointDown,
+                              onRemoveWaypoint: controller.removeWaypoint,
+                              onUseCurrentLocationAsStart: () {
+                                controller.setStartToCurrentLocation();
+                              },
+                              onUseCurrentLocationAsDestination: () {
+                                controller.setDestinationToCurrentLocation();
+                              },
+                            ),
                             const SizedBox(height: 12),
-                            Text(
-                              controller.errorMessage!,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
+                            RoadAvoidanceSlider(
+                              value: controller.roadAvoidanceStrictness,
+                              onChanged:
+                                  controller.updateRoadAvoidanceStrictness,
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: controller.isLoading
+                                  ? null
+                                  : controller.calculateRoute,
+                              icon: controller.isLoading
+                                  ? const SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.route),
+                              label: const Text('Route berechnen'),
+                            ),
+                            if (controller.errorMessage != null) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                controller.errorMessage!,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
                               ),
+                            ],
+                            if (controller.navigationErrorMessage != null) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                controller.navigationErrorMessage!,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            RouteStatsPanel(
+                              route: controller.route,
+                              averageSpeedKmh: controller.averageSpeedKmh,
                             ),
                           ],
-                          const SizedBox(height: 12),
-                          RouteStatsPanel(
-                            route: controller.route,
-                            averageSpeedKmh: controller.averageSpeedKmh,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  Future<void> _openMapPointActions(LatLng point) async {
+    setState(() {
+      selectedMapPoint = point;
+    });
+
+    final action = await showModalBottomSheet<_MapPointAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return _MapPointActionsSheet(point: point);
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (action == _MapPointAction.start) {
+      controller.setStartFromMap(point);
+    } else if (action == _MapPointAction.waypoint) {
+      controller.addWaypointFromMap(point);
+    } else if (action == _MapPointAction.destination) {
+      controller.setDestinationFromMap(point);
+    }
+
+    setState(() {
+      selectedMapPoint = null;
+    });
   }
 
   Future<void> _openSettings() async {
@@ -150,6 +266,94 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
           },
         );
       },
+    );
+  }
+}
+
+class _NavigationStartButton extends StatelessWidget {
+  const _NavigationStartButton({
+    required this.isActive,
+    required this.isStarting,
+    required this.onPressed,
+  });
+
+  final bool isActive;
+  final bool isStarting;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      key: const Key('navigation_start_button'),
+      onPressed: isStarting ? null : onPressed,
+      icon: isStarting
+          ? const SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(isActive ? Icons.stop : Icons.navigation),
+      label: Text(isActive ? 'Stoppen' : 'Starten'),
+    );
+  }
+}
+
+enum _MapPointAction {
+  start,
+  waypoint,
+  destination,
+}
+
+class _MapPointActionsSheet extends StatelessWidget {
+  const _MapPointActionsSheet({
+    required this.point,
+  });
+
+  final LatLng point;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Kartenpunkt verwenden',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${point.lat.toStringAsFixed(5)}, '
+              '${point.lng.toStringAsFixed(5)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.trip_origin),
+              title: const Text('Als Startpunkt'),
+              onTap: () => Navigator.of(context).pop(_MapPointAction.start),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined),
+              title: const Text('Als Zwischenstopp'),
+              onTap: () =>
+                  Navigator.of(context).pop(_MapPointAction.waypoint),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('Als Ziel'),
+              onTap: () =>
+                  Navigator.of(context).pop(_MapPointAction.destination),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -11,11 +11,13 @@ class MockRoutingService implements RoutingService {
   Future<RouteResult> calculateRoute(RouteRequest request) async {
     await Future<void>.delayed(const Duration(milliseconds: 450));
 
-    final geometry = _buildDemoGeometry(request.start, request.destination);
-    final directDistance = _estimateDistanceMeters(
+    final routePoints = [
       request.start,
+      ...request.waypoints,
       request.destination,
-    );
+    ];
+    final geometry = _buildDemoGeometry(routePoints);
+    final directDistance = _estimateRouteDistanceMeters(routePoints);
     final detourFactor = 1 + request.roadAvoidanceStrictness / 180;
     final distanceMeters = directDistance * detourFactor;
     final durationSeconds = (distanceMeters / 3.9).round();
@@ -58,7 +60,26 @@ class MockRoutingService implements RoutingService {
     );
   }
 
-  List<LatLng> _buildDemoGeometry(LatLng start, LatLng destination) {
+  List<LatLng> _buildDemoGeometry(List<LatLng> routePoints) {
+    final geometry = <LatLng>[];
+
+    for (var index = 0; index < routePoints.length - 1; index++) {
+      final legGeometry = _buildDemoLegGeometry(
+        routePoints[index],
+        routePoints[index + 1],
+      );
+
+      if (geometry.isEmpty) {
+        geometry.addAll(legGeometry);
+      } else {
+        geometry.addAll(legGeometry.skip(1));
+      }
+    }
+
+    return geometry;
+  }
+
+  List<LatLng> _buildDemoLegGeometry(LatLng start, LatLng destination) {
     final midLat = (start.lat + destination.lat) / 2;
     final midLng = (start.lng + destination.lng) / 2;
     final latOffset = (destination.lng - start.lng) * 0.08;
@@ -80,6 +101,19 @@ class MockRoutingService implements RoutingService {
       ),
       destination,
     ];
+  }
+
+  double _estimateRouteDistanceMeters(List<LatLng> routePoints) {
+    var distanceMeters = 0.0;
+
+    for (var index = 0; index < routePoints.length - 1; index++) {
+      distanceMeters += _estimateDistanceMeters(
+        routePoints[index],
+        routePoints[index + 1],
+      );
+    }
+
+    return distanceMeters;
   }
 
   double _estimateDistanceMeters(LatLng a, LatLng b) {

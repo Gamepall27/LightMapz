@@ -9,6 +9,9 @@ void main() {
       const request = RouteRequest(
         start: LatLng(lat: 51.2277, lng: 6.7735),
         destination: LatLng(lat: 51.4508, lng: 7.0131),
+        waypoints: [
+          LatLng(lat: 51.3, lng: 6.9),
+        ],
         roadAvoidanceStrictness: 75,
       );
 
@@ -21,6 +24,12 @@ void main() {
           'lat': 51.4508,
           'lng': 7.0131,
         },
+        'waypoints': [
+          {
+            'lat': 51.3,
+            'lng': 6.9,
+          },
+        ],
         'profile': 'bike',
         'roadAvoidanceStrictness': 75,
         'preferForestWays': false,

@@ -83,6 +83,7 @@ void main() {
           'lat': 51.4508,
           'lng': 7.0131,
         },
+        'waypoints': [],
         'profile': 'bike',
         'roadAvoidanceStrictness': 75,
         'preferForestWays': false,

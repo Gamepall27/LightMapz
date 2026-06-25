@@ -15,6 +15,7 @@ test("POST /route returns a route result", async () => {
     payload: {
       start: { lat: 51.2277, lng: 6.7735 },
       destination: { lat: 51.4508, lng: 7.0131 },
+      waypoints: [{ lat: 51.3, lng: 6.9 }],
       profile: "bike",
       roadAvoidanceStrictness: 75,
       preferForestWays: true,
@@ -27,6 +28,12 @@ test("POST /route returns a route result", async () => {
   const body = response.json();
   assert.deepEqual(body.geometry[0], { lat: 51.2277, lng: 6.7735 });
   assert.deepEqual(body.geometry.at(-1), { lat: 51.4508, lng: 7.0131 });
+  assert.ok(
+    body.geometry.some(
+      (point: { lat: number; lng: number }) =>
+        point.lat === 51.3 && point.lng === 6.9,
+    ),
+  );
   assert.ok(body.distanceMeters > 0);
   assert.ok(body.durationSeconds > 0);
   assert.equal(typeof body.roadSharePercent, "number");
@@ -48,6 +55,7 @@ test("POST /route validates request body", async () => {
     payload: {
       start: { lat: 99, lng: 6.7735 },
       destination: { lat: 51.4508, lng: 7.0131 },
+      waypoints: [{ lat: "bad", lng: 6.9 }],
       profile: "car",
       roadAvoidanceStrictness: 150,
       preferForestWays: "yes",

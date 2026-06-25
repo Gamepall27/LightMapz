@@ -638,7 +638,12 @@ function formatLonLats(
   request: RouteRequest,
   plan: BRouterCandidatePlan,
 ): string {
-  return [request.start, ...(plan.viaPoints ?? []), request.destination]
+  return [
+    request.start,
+    ...request.waypoints,
+    ...(plan.viaPoints ?? []),
+    request.destination,
+  ]
     .map((point) => `${point.lng},${point.lat}`)
     .join("|");
 }

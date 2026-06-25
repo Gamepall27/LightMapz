@@ -1,0 +1,20 @@
+{
+  "name": "lightmapz-routing-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --import tsx test/**/*.test.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

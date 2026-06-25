@@ -235,6 +235,15 @@ class _AddressAutocompleteFieldState extends State<AddressAutocompleteField> {
             labelText: widget.labelText,
             border: const OutlineInputBorder(),
             isDense: true,
+            errorText: suggestionError,
+            suffixIcon: widget.onEmptySuggestionSelected == null
+                ? null
+                : IconButton(
+                    key: Key('${widget.fieldKey}_current_location_button'),
+                    tooltip: 'Aktuellen Standort verwenden',
+                    onPressed: _selectEmptySuggestion,
+                    icon: const Icon(Icons.my_location),
+                  ),
           ),
           onTap: () {
             if (controller.text.trim().isEmpty &&
@@ -362,7 +371,8 @@ class _AddressAutocompleteFieldState extends State<AddressAutocompleteField> {
     setState(() {
       suggestions = const [];
       isLoadingSuggestions = false;
-      suggestionError = null;
+      suggestionError =
+          didSelect ? null : 'Standort konnte nicht ermittelt werden.';
       showSuggestions = false;
       isSelectingEmptySuggestion = false;
     });

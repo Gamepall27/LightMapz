@@ -23,6 +23,7 @@ class RouteStatsPanel extends StatelessWidget {
     }
 
     final currentRoute = route!;
+    final hasSegmentStats = currentRoute.segments.isNotEmpty;
     final calculatedDurationSeconds = _calculateDurationSeconds(
       distanceMeters: currentRoute.distanceMeters,
       averageSpeedKmh: averageSpeedKmh,
@@ -79,18 +80,21 @@ class RouteStatsPanel extends StatelessWidget {
                   label: 'Tempo',
                   value: '${_formatSpeed(averageSpeedKmh)} km/h',
                 ),
-                _StatItem(
-                  label: 'Straßenanteil',
-                  value: _formatPercent(currentRoute.roadSharePercent),
-                ),
-                _StatItem(
-                  label: 'Radweganteil',
-                  value: _formatPercent(currentRoute.cyclewaySharePercent),
-                ),
-                _StatItem(
-                  label: 'Weganteil',
-                  value: _formatPercent(currentRoute.pathSharePercent),
-                ),
+                if (hasSegmentStats)
+                  _StatItem(
+                    label: 'Straßenanteil',
+                    value: _formatPercent(currentRoute.roadSharePercent),
+                  ),
+                if (hasSegmentStats)
+                  _StatItem(
+                    label: 'Radweganteil',
+                    value: _formatPercent(currentRoute.cyclewaySharePercent),
+                  ),
+                if (hasSegmentStats)
+                  _StatItem(
+                    label: 'Weganteil',
+                    value: _formatPercent(currentRoute.pathSharePercent),
+                  ),
               ],
             ),
             for (final warning in currentRoute.warnings) ...[

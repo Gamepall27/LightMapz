@@ -3,12 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lightmapz/features/route_planner/widgets/route_stats_panel.dart';
 import 'package:lightmapz/routing/models/lat_lng.dart';
 import 'package:lightmapz/routing/models/route_result.dart';
+import 'package:lightmapz/routing/models/route_segment.dart';
 
 void main() {
   group('RouteStatsPanel', () {
     testWidgets('renders nothing when no route exists', (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
+          theme: ThemeData(useMaterial3: false),
           home: Scaffold(
             body: RouteStatsPanel(
               route: null,
@@ -24,10 +26,11 @@ void main() {
     testWidgets('renders distance, duration, shares, and warnings',
         (tester) async {
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
+          theme: ThemeData(useMaterial3: false),
           home: Scaffold(
             body: RouteStatsPanel(
-              route: RouteResult(
+              route: const RouteResult(
                 geometry: [
                   LatLng(lat: 51.2277, lng: 6.7735),
                   LatLng(lat: 51.4508, lng: 7.0131),
@@ -40,7 +43,26 @@ void main() {
                 warnings: [
                   'Eine komplett straßenfreie Route wurde nicht gefunden.',
                 ],
-                segments: [],
+                segments: [
+                  RouteSegment(
+                    distanceMeters: 3580,
+                    surface: 'asphalt',
+                    wayType: 'secondary',
+                    roadClass: 'road',
+                  ),
+                  RouteSegment(
+                    distanceMeters: 29975.2,
+                    surface: 'asphalt',
+                    wayType: 'cycleway',
+                    roadClass: 'cycleway',
+                  ),
+                  RouteSegment(
+                    distanceMeters: 8544.8,
+                    surface: 'gravel',
+                    wayType: 'path',
+                    roadClass: 'path',
+                  ),
+                ],
               ),
               averageSpeedKmh: 18,
             ),
@@ -67,6 +89,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(useMaterial3: false),
           home: Scaffold(
             body: RouteStatsPanel(
               route: const RouteResult(

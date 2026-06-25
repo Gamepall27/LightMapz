@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../../export/gpx_export_service.dart';
 import '../../geocoding/geocoding_service.dart';
 import '../../navigation/navigation_service.dart';
 import '../../routing/models/lat_lng.dart';
@@ -294,6 +295,67 @@ class RoutePlannerController extends ChangeNotifier {
     }
   }
 
+  void importGpxRoute(GpxRouteDocument document) {
+    if (document.geometry.length < 2) {
+      throw Exception('Die GPX-Datei enthaelt keine gueltige Route.');
+    }
+
+    final importedWaypoints = document.waypoints.length >= 2
+        ? document.waypoints
+        : [
+            GpxWaypoint(name: 'Start', point: document.geometry.first),
+            GpxWaypoint(name: 'Ziel', point: document.geometry.last),
+          ];
+    final importedStart = importedWaypoints.first;
+    final importedDestination = importedWaypoints.last;
+
+    _stopNavigationSubscriptions();
+
+    start = importedStart.point;
+    destination = importedDestination.point;
+    startAddress =
+        _normalizeImportedLabel(importedStart.name, importedStart.point);
+    destinationAddress = _normalizeImportedLabel(
+      importedDestination.name,
+      importedDestination.point,
+    );
+    _startMapPoint = importedStart.point;
+    _destinationMapPoint = importedDestination.point;
+    waypoints = [
+      for (final waypoint
+          in importedWaypoints.skip(1).take(importedWaypoints.length - 2))
+        RouteWaypoint(
+          id: _createWaypointId(),
+          address: _normalizeImportedLabel(waypoint.name, waypoint.point),
+          point: waypoint.point,
+        ),
+    ];
+
+    final importedDistanceMeters = _calculateGeometryDistanceMeters(
+      document.geometry,
+    );
+    route = RouteResult(
+      geometry: document.geometry,
+      distanceMeters: importedDistanceMeters,
+      durationSeconds: _calculateDurationSecondsFromAverageSpeed(
+        importedDistanceMeters,
+      ),
+      roadSharePercent: 0,
+      cyclewaySharePercent: 0,
+      pathSharePercent: 0,
+      warnings: const [
+        'Aus GPX importiert. Streckenanteile sind nicht verfuegbar.',
+      ],
+      segments: const [],
+    );
+    errorMessage = null;
+    navigationErrorMessage = null;
+    navigationStats = null;
+    currentLocation = null;
+    currentHeadingDegrees = null;
+    notifyListeners();
+  }
+
   Future<LatLng> _resolveAddress(String address, String fieldName) async {
     LatLng? mapPoint;
 
@@ -360,6 +422,16 @@ class RoutePlannerController extends ChangeNotifier {
     errorMessage = null;
     navigationStats = null;
     navigationErrorMessage = null;
+  }
+
+  String _normalizeImportedLabel(String label, LatLng point) {
+    final trimmed = label.trim();
+
+    if (trimmed.isNotEmpty) {
+      return trimmed;
+    }
+
+    return _formatMapPointLabel(point);
   }
 
   String _formatMapPointLabel(LatLng point) {
@@ -551,6 +623,26 @@ class RoutePlannerController extends ChangeNotifier {
     }
 
     return remaining;
+  }
+
+  double _calculateGeometryDistanceMeters(List<LatLng> geometry) {
+    var distanceMeters = 0.0;
+
+    for (var index = 0; index < geometry.length - 1; index++) {
+      distanceMeters += _distanceMeters(geometry[index], geometry[index + 1]);
+    }
+
+    return distanceMeters;
+  }
+
+  int _calculateDurationSecondsFromAverageSpeed(double distanceMeters) {
+    final speedMetersPerSecond = averageSpeedKmh * 1000 / 3600;
+
+    if (speedMetersPerSecond <= 0) {
+      return 0;
+    }
+
+    return (distanceMeters / speedMetersPerSecond).round();
   }
 
   _RouteProgress _routeProgress(LatLng location, List<LatLng> geometry) {

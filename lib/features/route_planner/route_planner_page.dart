@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../export/gpx_export_service.dart';
+import '../../export/gpx_file_picker_service.dart';
 import '../../geocoding/geocoding_service.dart';
 import '../../map/map_view.dart';
 import '../../navigation/navigation_service.dart';
@@ -18,6 +19,8 @@ class RoutePlannerPage extends StatefulWidget {
     required this.geocodingService,
     this.navigationService = const DeviceNavigationService(),
     this.gpxExportService = const LocalGpxExportService(),
+    this.gpxImportService = const LocalGpxExportService(),
+    this.gpxFilePickerService = const PlatformGpxFilePickerService(),
     super.key,
   });
 
@@ -25,6 +28,8 @@ class RoutePlannerPage extends StatefulWidget {
   final GeocodingService geocodingService;
   final NavigationService navigationService;
   final GpxExportService gpxExportService;
+  final GpxImportService gpxImportService;
+  final GpxFilePickerService gpxFilePickerService;
 
   @override
   State<RoutePlannerPage> createState() => _RoutePlannerPageState();
@@ -34,6 +39,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
   late final RoutePlannerController controller;
   LatLng? selectedMapPoint;
   bool isExportingGpx = false;
+  bool isImportingGpx = false;
 
   @override
   void initState() {
@@ -64,6 +70,16 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
               : AppBar(
                   title: const Text('LightMapz'),
                   actions: [
+                    IconButton(
+                      tooltip: 'GPX importieren',
+                      onPressed: isImportingGpx ? null : _importGpx,
+                      icon: isImportingGpx
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.upload_file_outlined),
+                    ),
                     IconButton(
                       tooltip: 'Einstellungen',
                       onPressed: _openSettings,
@@ -262,7 +278,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
     });
 
     try {
-      final file = await widget.gpxExportService.exportRoute(
+      final exportResult = await widget.gpxExportService.exportRoute(
         GpxRouteDocument(
           name:
               '${controller.startAddress} nach ${controller.destinationAddress}',
@@ -294,7 +310,11 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('GPX exportiert: ${file.path}'),
+          content: Text(
+            exportResult.path == null
+                ? 'GPX exportiert: ${exportResult.filename}'
+                : 'GPX exportiert: ${exportResult.path}',
+          ),
         ),
       );
     } on Exception catch (error) {
@@ -311,6 +331,53 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
       if (mounted) {
         setState(() {
           isExportingGpx = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _importGpx() async {
+    if (isImportingGpx) {
+      return;
+    }
+
+    final file = await widget.gpxFilePickerService.pickImportFile();
+
+    if (!mounted || file == null) {
+      return;
+    }
+
+    setState(() {
+      isImportingGpx = true;
+    });
+
+    try {
+      final document = await widget.gpxImportService.importRouteFromFile(file);
+      controller.importGpxRoute(document);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('GPX importiert: ${document.name}'),
+        ),
+      );
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('GPX-Import fehlgeschlagen: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isImportingGpx = false;
         });
       }
     }

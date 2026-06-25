@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lightmapz/export/gpx_export_service.dart';
 import 'package:lightmapz/features/route_planner/route_planner_controller.dart';
 import 'package:lightmapz/geocoding/geocoding_service.dart';
 import 'package:lightmapz/geocoding/models/geocode_result.dart';
@@ -323,6 +324,56 @@ void main() {
       expect(
         controller.navigationStats!.remainingDistanceMeters,
         greaterThan(900),
+      );
+    });
+
+    test('imports GPX routes into start, destination, waypoints, and geometry',
+        () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.importGpxRoute(
+        const GpxRouteDocument(
+          name: 'Import',
+          waypoints: [
+            GpxWaypoint(
+              name: 'Start GPX',
+              point: LatLng(lat: 51.1, lng: 7.1),
+            ),
+            GpxWaypoint(
+              name: 'Zwischenstopp GPX',
+              point: LatLng(lat: 51.2, lng: 7.2),
+            ),
+            GpxWaypoint(
+              name: 'Ziel GPX',
+              point: LatLng(lat: 51.3, lng: 7.3),
+            ),
+          ],
+          geometry: [
+            LatLng(lat: 51.1, lng: 7.1),
+            LatLng(lat: 51.15, lng: 7.15),
+            LatLng(lat: 51.2, lng: 7.2),
+            LatLng(lat: 51.3, lng: 7.3),
+          ],
+        ),
+      );
+
+      expect(controller.startAddress, 'Start GPX');
+      expect(controller.destinationAddress, 'Ziel GPX');
+      expect(controller.start, const LatLng(lat: 51.1, lng: 7.1));
+      expect(controller.destination, const LatLng(lat: 51.3, lng: 7.3));
+      expect(controller.waypoints, hasLength(1));
+      expect(controller.waypoints.single.address, 'Zwischenstopp GPX');
+      expect(
+          controller.waypoints.single.point, const LatLng(lat: 51.2, lng: 7.2));
+      expect(controller.route, isNotNull);
+      expect(controller.route!.geometry, hasLength(4));
+      expect(
+        controller.route!.warnings,
+        contains('Aus GPX importiert. Streckenanteile sind nicht verfuegbar.'),
       );
     });
   });

@@ -179,6 +179,113 @@ test("BRouterRoutingEngine chooses the highest path-share route for extreme avoi
   }
 });
 
+test("BRouterRoutingEngine rejects routes with large retracing spikes", async () => {
+  const { server, baseUrl } = await createBRouterStub({
+    routeByRequest: (url) => {
+      const profile = url.searchParams.get("profile");
+      const alternativeIdx = url.searchParams.get("alternativeidx");
+
+      if (profile === "safety" && alternativeIdx === "1") {
+        return createRouteGeoJson({
+          distanceMeters: 7000,
+          durationSeconds: 2100,
+          wayTags: [
+            "highway=path surface=compacted bicycle=yes",
+            "highway=path surface=compacted bicycle=yes",
+            "highway=path surface=compacted bicycle=yes",
+            "highway=path surface=compacted bicycle=yes",
+          ],
+          coordinates: [
+            [6.7735, 51.2277, 34],
+            [6.84, 51.28, 35],
+            [6.84, 51.22, 35],
+            [6.84, 51.28, 35],
+            [7.0131, 51.4508, 43],
+          ],
+        });
+      }
+
+      return createRouteGeoJson({
+        distanceMeters: 3000,
+        durationSeconds: 900,
+        wayTags: [
+          "highway=primary surface=asphalt",
+          "highway=secondary surface=asphalt",
+          "highway=residential surface=asphalt",
+        ],
+      });
+    },
+  });
+  const engine = new BRouterRoutingEngine(baseUrl, null);
+  const mapper = new RoutingProfileMapper();
+
+  try {
+    const result = await engine.calculateRoute(request, {
+      profileRules: mapper.mapRoadAvoidanceStrictness(100),
+    });
+
+    assert.equal(result.distanceMeters, 3000);
+    assert.equal(result.geometry.length, 3);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("BRouterRoutingEngine rejects routes with large lateral spikes", async () => {
+  const { server, baseUrl } = await createBRouterStub({
+    routeByRequest: (url) => {
+      const profile = url.searchParams.get("profile");
+      const alternativeIdx = url.searchParams.get("alternativeidx");
+
+      if (profile === "mtb" && alternativeIdx === "3") {
+        return createRouteGeoJson({
+          distanceMeters: 12_000,
+          durationSeconds: 3_400,
+          wayTags: [
+            "highway=track surface=ground bicycle=yes",
+            "highway=track surface=ground bicycle=yes",
+            "highway=path surface=dirt bicycle=yes",
+            "highway=path surface=dirt bicycle=yes",
+          ],
+          coordinates: [
+            [6.7735, 51.2277, 34],
+            [6.60, 51.29, 35],
+            [6.70, 51.31, 35],
+            [6.88, 51.34, 36],
+            [7.0131, 51.4508, 43],
+          ],
+        });
+      }
+
+      return createRouteGeoJson({
+        distanceMeters: 6_000,
+        durationSeconds: 1_500,
+        wayTags: [
+          "highway=residential surface=asphalt",
+          "highway=cycleway surface=asphalt",
+          "highway=residential surface=asphalt",
+        ],
+      });
+    },
+  });
+  const engine = new BRouterRoutingEngine(baseUrl, null);
+  const mapper = new RoutingProfileMapper();
+
+  try {
+    const result = await engine.calculateRoute(
+      { ...request, roadAvoidanceStrictness: 100, preferForestWays: true },
+      {
+        profileRules: mapper.mapRoadAvoidanceStrictness(100),
+      },
+    );
+
+    assert.equal(result.distanceMeters, 6_000);
+    assert.equal(result.geometry.length, 3);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("BRouterRoutingEngine prefers forest-like tracks over road-adjacent ways", async () => {
   const { server, baseUrl, requests } = await createBRouterStub({
     routeByRequest: (url) => {
@@ -322,6 +429,7 @@ function createRouteGeoJson(options: {
   distanceMeters: number;
   durationSeconds: number;
   wayTags: string[];
+  coordinates?: number[][];
 }): BRouterFeatureCollection {
   const segmentDistance = Math.round(
     options.distanceMeters / options.wayTags.length,
@@ -364,11 +472,12 @@ function createRouteGeoJson(options: {
         },
         geometry: {
           type: "LineString",
-          coordinates: [
-            [6.7735, 51.2277, 34],
-            [6.8, 51.25, 35],
-            [7.0131, 51.4508, 43],
-          ],
+          coordinates:
+            options.coordinates ?? [
+              [6.7735, 51.2277, 34],
+              [6.8, 51.25, 35],
+              [7.0131, 51.4508, 43],
+            ],
         },
       },
     ],

@@ -181,6 +181,51 @@ void main() {
       expect(find.text('Eigener Standort'), findsOneWidget);
     });
 
+    testWidgets(
+        'uses the current location suggestion as the resolved start point',
+        (tester) async {
+      final service = _PageTestRoutingService();
+      final navigationService = _PageTestNavigationService()
+        ..currentLocation = const NavigationLocation(
+          point: LatLng(lat: 51.5123, lng: 7.4567),
+          headingDegrees: 15,
+        );
+      addTearDown(navigationService.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoutePlannerPage(
+            routingService: service,
+            geocodingService: _PageTestGeocodingService(),
+            navigationService: navigationService,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const Key('start_address_field')),
+        '',
+      );
+      await tester.tap(find.byKey(const Key('start_address_field')));
+      await tester.pump();
+      await tester
+          .tap(find.byKey(const Key('start_current_location_suggestion')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Eigener Standort'), findsOneWidget);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -280));
+      await tester.pump();
+      await tester.tap(find.text('Route berechnen'));
+      await tester.pump();
+
+      expect(
+        service.lastRequest?.start,
+        const LatLng(lat: 51.5123, lng: 7.4567),
+      );
+    });
+
     testWidgets('hides planner controls while navigation is active',
         (tester) async {
       final navigationService = _PageTestNavigationService();
@@ -320,17 +365,19 @@ class _PageTestRoutingService implements RoutingService {
 class _PageTestNavigationService implements NavigationService {
   final locationController = StreamController<NavigationLocation>.broadcast();
   final headingController = StreamController<double?>.broadcast();
+  NavigationLocation? currentLocation;
 
   @override
   Future<void> ensureLocationPermission() async {}
 
   @override
   Future<NavigationLocation> getCurrentLocation() async {
-    return const NavigationLocation(
-      point: LatLng(lat: 51.2277, lng: 6.7735),
-      headingDegrees: 25,
-      speedMetersPerSecond: 5,
-    );
+    return currentLocation ??
+        const NavigationLocation(
+          point: LatLng(lat: 51.2277, lng: 6.7735),
+          headingDegrees: 25,
+          speedMetersPerSecond: 5,
+        );
   }
 
   @override

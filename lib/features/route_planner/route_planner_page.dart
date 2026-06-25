@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../export/gpx_export_service.dart';
 import '../../geocoding/geocoding_service.dart';
 import '../../map/map_view.dart';
 import '../../navigation/navigation_service.dart';
@@ -16,12 +17,14 @@ class RoutePlannerPage extends StatefulWidget {
     required this.routingService,
     required this.geocodingService,
     this.navigationService = const DeviceNavigationService(),
+    this.gpxExportService = const LocalGpxExportService(),
     super.key,
   });
 
   final RoutingService routingService;
   final GeocodingService geocodingService;
   final NavigationService navigationService;
+  final GpxExportService gpxExportService;
 
   @override
   State<RoutePlannerPage> createState() => _RoutePlannerPageState();
@@ -30,6 +33,7 @@ class RoutePlannerPage extends StatefulWidget {
 class _RoutePlannerPageState extends State<RoutePlannerPage> {
   late final RoutePlannerController controller;
   LatLng? selectedMapPoint;
+  bool isExportingGpx = false;
 
   @override
   void initState() {
@@ -82,16 +86,13 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                               .whereType<LatLng>()
                               .toList(),
                           selectedPoint: selectedMapPoint,
-                          routeGeometry:
-                              controller.route?.geometry ?? const [],
+                          routeGeometry: controller.route?.geometry ?? const [],
                           currentLocation: controller.currentLocation,
                           currentHeadingDegrees:
                               controller.currentHeadingDegrees,
-                          isNavigationActive:
-                              controller.isNavigationActive,
-                          onMapPointSelected: isNavigationActive
-                              ? null
-                              : _openMapPointActions,
+                          isNavigationActive: controller.isNavigationActive,
+                          onMapPointSelected:
+                              isNavigationActive ? null : _openMapPointActions,
                         ),
                       ),
                       if (controller.displayedNavigationStats != null)
@@ -103,8 +104,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                             alignment: Alignment.topCenter,
                             child: NavigationStatusPanel(
                               stats: controller.displayedNavigationStats!,
-                              isNavigationActive:
-                                  controller.isNavigationActive,
+                              isNavigationActive: controller.isNavigationActive,
                             ),
                           ),
                         ),
@@ -142,8 +142,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                           children: [
                             AddressInputPanel(
                               startAddress: controller.startAddress,
-                              destinationAddress:
-                                  controller.destinationAddress,
+                              destinationAddress: controller.destinationAddress,
                               waypoints: controller.waypoints,
                               geocodingService: widget.geocodingService,
                               onStartAddressChanged:
@@ -156,12 +155,10 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                               onMoveWaypointUp: controller.moveWaypointUp,
                               onMoveWaypointDown: controller.moveWaypointDown,
                               onRemoveWaypoint: controller.removeWaypoint,
-                              onUseCurrentLocationAsStart: () {
-                                controller.setStartToCurrentLocation();
-                              },
-                              onUseCurrentLocationAsDestination: () {
-                                controller.setDestinationToCurrentLocation();
-                              },
+                              onUseCurrentLocationAsStart:
+                                  controller.setStartToCurrentLocation,
+                              onUseCurrentLocationAsDestination:
+                                  controller.setDestinationToCurrentLocation,
                             ),
                             const SizedBox(height: 12),
                             RoadAvoidanceSlider(
@@ -206,6 +203,9 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                             RouteStatsPanel(
                               route: controller.route,
                               averageSpeedKmh: controller.averageSpeedKmh,
+                              onExportGpx:
+                                  controller.route == null ? null : _exportGpx,
+                              isExporting: isExportingGpx,
                             ),
                           ],
                         ),
@@ -248,6 +248,72 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
     setState(() {
       selectedMapPoint = null;
     });
+  }
+
+  Future<void> _exportGpx() async {
+    final route = controller.route;
+
+    if (route == null || route.geometry.length < 2 || isExportingGpx) {
+      return;
+    }
+
+    setState(() {
+      isExportingGpx = true;
+    });
+
+    try {
+      final file = await widget.gpxExportService.exportRoute(
+        GpxRouteDocument(
+          name:
+              '${controller.startAddress} nach ${controller.destinationAddress}',
+          waypoints: [
+            GpxWaypoint(
+              name: controller.startAddress,
+              point: controller.start,
+            ),
+            ...controller.waypoints
+                .where((waypoint) => waypoint.point != null)
+                .map(
+                  (waypoint) => GpxWaypoint(
+                    name: waypoint.address,
+                    point: waypoint.point!,
+                  ),
+                ),
+            GpxWaypoint(
+              name: controller.destinationAddress,
+              point: controller.destination,
+            ),
+          ],
+          geometry: route.geometry,
+        ),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('GPX exportiert: ${file.path}'),
+        ),
+      );
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('GPX-Export fehlgeschlagen: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isExportingGpx = false;
+        });
+      }
+    }
   }
 
   Future<void> _openSettings() async {
@@ -342,8 +408,7 @@ class _MapPointActionsSheet extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.add_location_alt_outlined),
               title: const Text('Als Zwischenstopp'),
-              onTap: () =>
-                  Navigator.of(context).pop(_MapPointAction.waypoint),
+              onTap: () => Navigator.of(context).pop(_MapPointAction.waypoint),
             ),
             ListTile(
               leading: const Icon(Icons.flag_outlined),

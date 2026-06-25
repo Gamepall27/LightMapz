@@ -6,11 +6,15 @@ class RouteStatsPanel extends StatelessWidget {
   const RouteStatsPanel({
     required this.route,
     required this.averageSpeedKmh,
+    this.onExportGpx,
+    this.isExporting = false,
     super.key,
   });
 
   final RouteResult? route;
   final double averageSpeedKmh;
+  final Future<void> Function()? onExportGpx;
+  final bool isExporting;
 
   @override
   Widget build(BuildContext context) {
@@ -36,9 +40,27 @@ class RouteStatsPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Routendaten',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Routendaten',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                if (onExportGpx != null)
+                  OutlinedButton.icon(
+                    key: const Key('export_gpx_button'),
+                    onPressed: isExporting ? null : onExportGpx,
+                    icon: isExporting
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download_outlined),
+                    label: const Text('GPX'),
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             Wrap(

@@ -699,20 +699,23 @@ function scoreRouteForRoadAvoidance(
   bucket: RoadAvoidanceBucket,
   preferForestWays: boolean,
 ): number {
+  const shapePenalty = scoreRouteShapePenalty(route.geometry, bucket);
+
   if (bucket <= 50) {
-    return route.distanceMeters;
+    return route.distanceMeters + shapePenalty;
   }
 
   if (bucket === 100) {
     if (preferForestWays) {
-      return scoreForestPreferredRoute(route);
+      return scoreForestPreferredRoute(route) + shapePenalty;
     }
 
     return (
       -route.pathSharePercent * 1_000_000 -
       route.cyclewaySharePercent * 200_000 +
       route.roadSharePercent * 50_000 +
-      route.distanceMeters
+      route.distanceMeters +
+      shapePenalty
     );
   }
 
@@ -738,7 +741,7 @@ function scoreRouteForRoadAvoidance(
     return sum + segment.distanceMeters * weights.unknownRoad;
   }, 0);
 
-  return route.distanceMeters + roadPenalty;
+  return route.distanceMeters + roadPenalty + shapePenalty;
 }
 
 function scoreForestPreferredRoute(route: RouteResult): number {
@@ -788,6 +791,164 @@ function scoreForestPreferredRoute(route: RouteResult): number {
     route.roadSharePercent * 180_000 +
     route.distanceMeters
   );
+}
+
+function scoreRouteShapePenalty(
+  geometry: LatLng[],
+  bucket: RoadAvoidanceBucket,
+): number {
+  if (geometry.length < 3 || bucket < 75) {
+    return 0;
+  }
+
+  const backtrackingMeters = calculateBacktrackingMeters(geometry);
+  const retraceMeters = calculateRetraceMeters(geometry);
+  const lateralSpikeMeters = calculateLateralSpikeMeters(geometry);
+
+  return (
+    backtrackingMeters * 40_000 +
+    retraceMeters * 120_000 +
+    lateralSpikeMeters * 100_000
+  );
+}
+
+function calculateLateralSpikeMeters(geometry: LatLng[]): number {
+  const start = geometry[0];
+  const destination = geometry.at(-1);
+
+  if (destination === undefined) {
+    return 0;
+  }
+
+  const directDistanceMeters = calculateDistanceMeters(start, destination);
+
+  if (!Number.isFinite(directDistanceMeters) || directDistanceMeters < 1_500) {
+    return 0;
+  }
+
+  const allowedCorridorMeters = clamp(directDistanceMeters * 0.12, 400, 1_800);
+  let maxExcessMeters = 0;
+
+  for (const point of geometry) {
+    const lateralDistanceMeters = Math.abs(
+      projectPointOntoRoute(point, start, destination).lateralDistanceMeters,
+    );
+    const excessMeters = lateralDistanceMeters - allowedCorridorMeters;
+
+    if (excessMeters > maxExcessMeters) {
+      maxExcessMeters = excessMeters;
+    }
+  }
+
+  return Math.max(0, maxExcessMeters);
+}
+
+function calculateBacktrackingMeters(geometry: LatLng[]): number {
+  const start = geometry[0];
+  const destination = geometry.at(-1);
+
+  if (destination === undefined) {
+    return 0;
+  }
+
+  const midpointLat = (start.lat + destination.lat) / 2;
+  const metersPerDegreeLat = 111_320;
+  const metersPerDegreeLng =
+    metersPerDegreeLat * Math.cos(toRadians(midpointLat));
+  const startX = start.lng * metersPerDegreeLng;
+  const startY = start.lat * metersPerDegreeLat;
+  const destinationX = destination.lng * metersPerDegreeLng;
+  const destinationY = destination.lat * metersPerDegreeLat;
+  const axisX = destinationX - startX;
+  const axisY = destinationY - startY;
+  const axisLength = Math.sqrt(axisX * axisX + axisY * axisY) || 1;
+  const unitX = axisX / axisLength;
+  const unitY = axisY / axisLength;
+  let maxProgressMeters = 0;
+  let backtrackingMeters = 0;
+
+  for (const point of geometry) {
+    const pointX = point.lng * metersPerDegreeLng;
+    const pointY = point.lat * metersPerDegreeLat;
+    const progressMeters =
+      (pointX - startX) * unitX + (pointY - startY) * unitY;
+
+    if (progressMeters > maxProgressMeters) {
+      maxProgressMeters = progressMeters;
+      continue;
+    }
+
+    const lossMeters = maxProgressMeters - progressMeters;
+
+    if (lossMeters > 150) {
+      backtrackingMeters += lossMeters - 150;
+    }
+  }
+
+  return backtrackingMeters;
+}
+
+function calculateRetraceMeters(geometry: LatLng[]): number {
+  let retraceMeters = 0;
+
+  for (let index = 1; index < geometry.length - 1; index++) {
+    const previousSegmentMeters = calculateDistanceMeters(
+      geometry[index - 1],
+      geometry[index],
+    );
+    const nextSegmentMeters = calculateDistanceMeters(
+      geometry[index],
+      geometry[index + 1],
+    );
+    const effectiveSegmentMeters = Math.min(
+      previousSegmentMeters,
+      nextSegmentMeters,
+    );
+
+    if (effectiveSegmentMeters < 150) {
+      continue;
+    }
+
+    const incomingBearing = calculateBearingDegrees(
+      geometry[index - 1],
+      geometry[index],
+    );
+    const outgoingBearing = calculateBearingDegrees(
+      geometry[index],
+      geometry[index + 1],
+    );
+    const turnDelta = Math.abs(
+      normalizeBearingDelta(outgoingBearing - incomingBearing),
+    );
+
+    if (turnDelta >= 150) {
+      retraceMeters += effectiveSegmentMeters;
+    }
+  }
+
+  return retraceMeters;
+}
+
+function calculateBearingDegrees(from: LatLng, to: LatLng): number {
+  const fromLat = toRadians(from.lat);
+  const toLat = toRadians(to.lat);
+  const deltaLng = toRadians(to.lng - from.lng);
+  const y = Math.sin(deltaLng) * Math.cos(toLat);
+  const x =
+    Math.cos(fromLat) * Math.sin(toLat) -
+    Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLng);
+
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function normalizeBearingDelta(delta: number): number {
+  let normalized = (delta + 540) % 360 - 180;
+
+  if (normalized === -180) {
+    normalized = 180;
+  }
+
+  return normalized;
 }
 
 function isNaturalOrLooseSurface(surface: string | null | undefined): boolean {

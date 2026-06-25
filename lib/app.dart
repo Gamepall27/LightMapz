@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'export/gpx_export_service.dart';
 import 'features/route_planner/route_planner_page.dart';
 import 'geocoding/http_geocoding_service.dart';
 import 'routing/http_routing_service.dart';
@@ -29,6 +30,7 @@ class LightMapzApp extends StatelessWidget {
       home: RoutePlannerPage(
         routingService: HttpRoutingService(baseUrl: apiBaseUrl),
         geocodingService: HttpGeocodingService(baseUrl: apiBaseUrl),
+        gpxExportService: const LocalGpxExportService(),
       ),
     );
   }

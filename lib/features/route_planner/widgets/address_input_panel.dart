@@ -7,6 +7,7 @@ import '../../../geocoding/models/geocode_result.dart';
 import '../route_planner_controller.dart';
 
 typedef WaypointAddressChanged = void Function(String waypointId, String value);
+typedef EmptySuggestionSelected = Future<bool> Function();
 
 class AddressInputPanel extends StatelessWidget {
   const AddressInputPanel({
@@ -37,8 +38,8 @@ class AddressInputPanel extends StatelessWidget {
   final ValueChanged<String> onMoveWaypointUp;
   final ValueChanged<String> onMoveWaypointDown;
   final ValueChanged<String> onRemoveWaypoint;
-  final VoidCallback onUseCurrentLocationAsStart;
-  final VoidCallback onUseCurrentLocationAsDestination;
+  final EmptySuggestionSelected onUseCurrentLocationAsStart;
+  final EmptySuggestionSelected onUseCurrentLocationAsDestination;
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +167,7 @@ class AddressAutocompleteField extends StatefulWidget {
   final GeocodingService geocodingService;
   final ValueChanged<String> onChanged;
   final String? emptySuggestionLabel;
-  final VoidCallback? onEmptySuggestionSelected;
+  final EmptySuggestionSelected? onEmptySuggestionSelected;
 
   @override
   State<AddressAutocompleteField> createState() =>
@@ -185,6 +186,7 @@ class _AddressAutocompleteFieldState extends State<AddressAutocompleteField> {
   bool showSuggestions = false;
   String? suggestionError;
   int searchRequestId = 0;
+  bool isSelectingEmptySuggestion = false;
 
   @override
   void initState() {
@@ -327,22 +329,42 @@ class _AddressAutocompleteFieldState extends State<AddressAutocompleteField> {
     });
   }
 
-  void _selectEmptySuggestion() {
+  Future<void> _selectEmptySuggestion() async {
     final label = widget.emptySuggestionLabel;
 
-    if (label == null || widget.onEmptySuggestionSelected == null) {
+    if (label == null ||
+        widget.onEmptySuggestionSelected == null ||
+        isSelectingEmptySuggestion) {
       return;
     }
 
     debounce?.cancel();
     searchRequestId++;
-    _setControllerText(label);
-    widget.onEmptySuggestionSelected!();
+    setState(() {
+      suggestions = const [];
+      isLoadingSuggestions = true;
+      suggestionError = null;
+      showSuggestions = true;
+      isSelectingEmptySuggestion = true;
+    });
+
+    final didSelect = await widget.onEmptySuggestionSelected!();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (didSelect) {
+      _setControllerText(label);
+      focusNode.unfocus();
+    }
+
     setState(() {
       suggestions = const [];
       isLoadingSuggestions = false;
       suggestionError = null;
       showSuggestions = false;
+      isSelectingEmptySuggestion = false;
     });
   }
 
@@ -392,7 +414,7 @@ class _AddressSuggestions extends StatelessWidget {
   final bool isVisible;
   final String query;
   final String? emptySuggestionLabel;
-  final VoidCallback? onEmptySuggestionSelected;
+  final Future<void> Function()? onEmptySuggestionSelected;
   final ValueChanged<GeocodeResult> onSelected;
 
   @override
@@ -412,7 +434,9 @@ class _AddressSuggestions extends StatelessWidget {
       children.add(
         InkWell(
           key: Key('${fieldKey}_current_location_suggestion'),
-          onTap: onEmptySuggestionSelected,
+          onTap: () {
+            onEmptySuggestionSelected?.call();
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(

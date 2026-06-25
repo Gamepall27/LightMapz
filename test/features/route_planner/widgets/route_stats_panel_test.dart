@@ -60,5 +60,42 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('shows a GPX export button when a callback is provided',
+        (tester) async {
+      var exportTapped = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RouteStatsPanel(
+              route: const RouteResult(
+                geometry: [
+                  LatLng(lat: 51.2277, lng: 6.7735),
+                  LatLng(lat: 51.4508, lng: 7.0131),
+                ],
+                distanceMeters: 42100,
+                durationSeconds: 10800,
+                roadSharePercent: 8.5,
+                cyclewaySharePercent: 71.2,
+                pathSharePercent: 20.3,
+                warnings: [],
+                segments: [],
+              ),
+              averageSpeedKmh: 18,
+              onExportGpx: () async {
+                exportTapped = true;
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('export_gpx_button')));
+      await tester.pump();
+
+      expect(exportTapped, isTrue);
+      expect(find.text('GPX'), findsOneWidget);
+    });
   });
 }

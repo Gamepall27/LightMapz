@@ -111,12 +111,12 @@ class RoutePlannerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setStartToCurrentLocation() async {
-    await _setEndpointToCurrentLocation(isStart: true);
+  Future<bool> setStartToCurrentLocation() async {
+    return _setEndpointToCurrentLocation(isStart: true);
   }
 
-  Future<void> setDestinationToCurrentLocation() async {
-    await _setEndpointToCurrentLocation(isStart: false);
+  Future<bool> setDestinationToCurrentLocation() async {
+    return _setEndpointToCurrentLocation(isStart: false);
   }
 
   void addWaypoint() {
@@ -216,13 +216,13 @@ class RoutePlannerController extends ChangeNotifier {
       final currentLocation = await _navigationService.getCurrentLocation();
       _handleLocationUpdate(currentLocation);
       _locationSubscription = _navigationService.getLocationStream().listen(
-        _handleLocationUpdate,
-        onError: _handleNavigationError,
-      );
+            _handleLocationUpdate,
+            onError: _handleNavigationError,
+          );
       _headingSubscription = _navigationService.getHeadingStream().listen(
-        _handleHeadingUpdate,
-        onError: (_) {},
-      );
+            _handleHeadingUpdate,
+            onError: (_) {},
+          );
       _navigationStatsTimer = Timer.periodic(
         const Duration(seconds: 30),
         (_) => _recalculateNavigationStats(),
@@ -367,7 +367,7 @@ class RoutePlannerController extends ChangeNotifier {
         '${point.lng.toStringAsFixed(5)}';
   }
 
-  Future<void> _setEndpointToCurrentLocation({required bool isStart}) async {
+  Future<bool> _setEndpointToCurrentLocation({required bool isStart}) async {
     navigationErrorMessage = null;
     notifyListeners();
 
@@ -389,9 +389,11 @@ class RoutePlannerController extends ChangeNotifier {
       currentLocation = location.point;
       currentHeadingDegrees = location.headingDegrees ?? currentHeadingDegrees;
       _clearRouteState();
+      return true;
     } on Exception catch (error) {
       navigationErrorMessage = 'Standort konnte nicht ermittelt werden: '
           '$error';
+      return false;
     } finally {
       if (!_isDisposed) {
         notifyListeners();
@@ -459,8 +461,8 @@ class RoutePlannerController extends ChangeNotifier {
       location.point,
       geometry,
     );
-    final speedMetersPerSecond = location.speedMetersPerSecond ??
-        averageSpeedKmh * 1000 / 3600;
+    final speedMetersPerSecond =
+        location.speedMetersPerSecond ?? averageSpeedKmh * 1000 / 3600;
     final durationSeconds = speedMetersPerSecond <= 0
         ? 0
         : (remainingMeters / speedMetersPerSecond).round();
@@ -503,11 +505,9 @@ class RoutePlannerController extends ChangeNotifier {
     final progress = _routeProgress(location, geometry);
     var distanceToPoint = progress.distanceToNextPointMeters;
 
-    for (
-      var index = progress.nextPointIndex;
-      index < geometry.length - 1;
-      index++
-    ) {
+    for (var index = progress.nextPointIndex;
+        index < geometry.length - 1;
+        index++) {
       if (index > progress.nextPointIndex) {
         distanceToPoint += _distanceMeters(
           geometry[index - 1],
@@ -544,11 +544,9 @@ class RoutePlannerController extends ChangeNotifier {
     final progress = _routeProgress(location, geometry);
     var remaining = progress.distanceToNextPointMeters;
 
-    for (
-      var index = progress.nextPointIndex;
-      index < geometry.length - 1;
-      index++
-    ) {
+    for (var index = progress.nextPointIndex;
+        index < geometry.length - 1;
+        index++) {
       remaining += _distanceMeters(geometry[index], geometry[index + 1]);
     }
 
@@ -588,8 +586,8 @@ class RoutePlannerController extends ChangeNotifier {
 
   LatLng _projectPointToSegment(LatLng point, LatLng start, LatLng end) {
     final metersPerDegreeLat = 111320.0;
-    final metersPerDegreeLng = metersPerDegreeLat *
-        math.cos(_toRadians((start.lat + end.lat) / 2));
+    final metersPerDegreeLng =
+        metersPerDegreeLat * math.cos(_toRadians((start.lat + end.lat) / 2));
     final startX = start.lng * metersPerDegreeLng;
     final startY = start.lat * metersPerDegreeLat;
     final endX = end.lng * metersPerDegreeLng;
@@ -604,9 +602,9 @@ class RoutePlannerController extends ChangeNotifier {
       return start;
     }
 
-    final t = (((pointX - startX) * dx + (pointY - startY) * dy) /
-            lengthSquared)
-        .clamp(0.0, 1.0);
+    final t =
+        (((pointX - startX) * dx + (pointY - startY) * dy) / lengthSquared)
+            .clamp(0.0, 1.0);
 
     return LatLng(
       lat: (startY + dy * t) / metersPerDegreeLat,

@@ -398,6 +398,64 @@ test("BRouterRoutingEngine uses the detour-size setting to choose the field-way 
   }
 });
 
+test("BRouterRoutingEngine tests a field-way corridor entry as an automatic waypoint", async () => {
+  const { server, baseUrl, requests } = await createBRouterStub({
+    routeByRequest: (url) => {
+      const lonlats = url.searchParams.get("lonlats") ?? "";
+      const usesCorridorEntry = lonlats.includes("6.78,51.27");
+
+      return createRouteGeoJson({
+        distanceMeters: usesCorridorEntry ? 17_000 : 11_000,
+        durationSeconds: usesCorridorEntry ? 4_800 : 3_000,
+        wayTags: usesCorridorEntry
+          ? [
+              "highway=track surface=ground bicycle=yes",
+              "highway=path surface=dirt bicycle=yes",
+              "highway=track surface=gravel bicycle=yes",
+            ]
+          : [
+              "highway=track surface=gravel bicycle=yes",
+              "highway=residential surface=asphalt",
+              "highway=path surface=compacted bicycle=yes",
+            ],
+      });
+    },
+    overpassElements: [
+      {
+        type: "way",
+        center: { lat: 51.27, lon: 6.78 },
+        tags: { highway: "path", surface: "unknown" },
+      },
+      ...[6.85, 6.852, 6.854, 6.856, 6.858, 6.86].map((lon) => ({
+        type: "way",
+        center: { lat: 51.35, lon },
+        tags: { highway: "track", surface: "gravel" },
+      })),
+    ],
+  });
+  const engine = new BRouterRoutingEngine(baseUrl, `${baseUrl}/overpass`);
+  const mapper = new RoutingProfileMapper();
+
+  try {
+    const result = await engine.calculateRoute(request, {
+      profileRules: mapper.mapRoadAvoidanceStrictness(100),
+    });
+
+    assert.ok(
+      requests.some((url) => {
+        return (url.searchParams.get("lonlats") ?? "").includes(
+          "6.78,51.27",
+        );
+      }),
+      "the entry to a field-way corridor should be tried as an automatic waypoint",
+    );
+    assert.equal(result.distanceMeters, 17_000);
+    assert.equal(Math.round(result.pathSharePercent), 100);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("BRouterRoutingEngine tries wide four-via detours for extreme avoidance", async () => {
   const { server, baseUrl, requests } = await createBRouterStub({
     routeByRequest: (url) => {

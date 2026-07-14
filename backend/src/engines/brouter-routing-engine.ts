@@ -455,7 +455,11 @@ async function fetchMappedGreenWayCandidatePlans(
     .sort((left, right) => right.score - left.score);
 
   return [
-    ...createSingleGreenWayPlans(candidates, preferForestWays),
+    ...createSingleGreenWayPlans(
+      candidates,
+      preferForestWays,
+      desiredLateralDetourMeters,
+    ),
     ...createTripleGreenWayPlans(candidates, preferForestWays),
     ...createQuadGreenWayPlans(candidates, preferForestWays),
     ...createPairedGreenWayPlans(candidates, preferForestWays),
@@ -647,15 +651,141 @@ function isBikeUsableGreenWay(tags: Record<string, string>): boolean {
 function createSingleGreenWayPlans(
   candidates: GreenWayCandidate[],
   preferForestWays: boolean,
+  desiredLateralDetourMeters: number | null,
 ): BRouterCandidatePlan[] {
   const profile = preferForestWays ? "mtb" : "safety";
-  const limit = preferForestWays ? 6 : 8;
+  const selectedCandidates = preferForestWays
+    ? selectDistributedGreenwayAnchors(
+        candidates,
+        desiredLateralDetourMeters,
+      )
+    : candidates.slice(0, 8);
 
-  return candidates.slice(0, limit).map((candidate) => ({
+  return selectedCandidates.map((candidate) => ({
     profile,
     alternativeIdx: 0,
     viaPoints: [candidate.point],
   }));
+}
+
+function selectDistributedGreenwayAnchors(
+  candidates: GreenWayCandidate[],
+  desiredLateralDetourMeters: number | null,
+): GreenWayCandidate[] {
+  const anchors: GreenWayCandidate[] = [];
+
+  // A manually placed waypoint often works because it captures the entry to
+  // a field-way corridor. Do the same automatically: test one strong anchor
+  // at the entry, middle and exit of each side instead of spending all six
+  // single-waypoint attempts on the globally highest-scoring middle section.
+  for (const side of [-1, 1]) {
+    const sameSide = candidates.filter((candidate) => candidate.side === side);
+
+    for (const [minProgress, maxProgress] of [
+      [-0.1, 0.34],
+      [0.34, 0.66],
+      [0.66, 1.1],
+    ]) {
+      const [anchor] = selectTopCandidatesInProgressRange(
+        sameSide,
+        minProgress,
+        maxProgress,
+        1,
+      );
+
+      if (anchor !== undefined) {
+        anchors.push(anchor);
+      }
+    }
+  }
+
+  if (desiredLateralDetourMeters !== null) {
+    const innerCorridorTargetMeters = clamp(
+      desiredLateralDetourMeters * 0.65,
+      2_000,
+      4_000,
+    );
+
+    for (const side of [-1, 1]) {
+      const innerEntry = selectCandidateForLateralTarget(
+        candidates.filter((candidate) => candidate.side === side),
+        -0.1,
+        0.4,
+        desiredLateralDetourMeters,
+        innerCorridorTargetMeters,
+      );
+
+      if (innerEntry !== undefined) {
+        anchors.push(innerEntry);
+      }
+    }
+  }
+
+  // Preserve the former globally strongest candidates as well. Some
+  // OSM corridors have no useful entry/exit centre even though their middle
+  // produces a viable route; replacing every former candidate with distributed
+  // anchors would make the search regress to BRouter's direct fallback.
+  for (const candidate of candidates.slice(0, 6)) {
+    if (anchors.length >= 14) {
+      break;
+    }
+
+    const isAlreadySelected = anchors.some((anchor) => {
+      return (
+        anchor.point.lat === candidate.point.lat &&
+        anchor.point.lng === candidate.point.lng
+      );
+    });
+
+    if (!isAlreadySelected) {
+      anchors.push(candidate);
+    }
+  }
+
+  return anchors;
+}
+
+function selectCandidateForLateralTarget(
+  candidates: GreenWayCandidate[],
+  minProgress: number,
+  maxProgress: number,
+  currentLateralTargetMeters: number,
+  lateralTargetMeters: number,
+): GreenWayCandidate | undefined {
+  return candidates
+    .filter((candidate) => {
+      return (
+        candidate.progress >= minProgress && candidate.progress < maxProgress
+      );
+    })
+    .sort((left, right) => {
+      const leftScore = scoreCandidateForLateralTarget(
+        left,
+        currentLateralTargetMeters,
+        lateralTargetMeters,
+      );
+      const rightScore = scoreCandidateForLateralTarget(
+        right,
+        currentLateralTargetMeters,
+        lateralTargetMeters,
+      );
+
+      return rightScore - leftScore;
+    })[0];
+}
+
+function scoreCandidateForLateralTarget(
+  candidate: GreenWayCandidate,
+  currentLateralTargetMeters: number,
+  lateralTargetMeters: number,
+): number {
+  const currentLateralPenalty =
+    Math.abs(candidate.lateralDistanceMeters - currentLateralTargetMeters) *
+    1_500;
+  const replacementLateralPenalty =
+    Math.abs(candidate.lateralDistanceMeters - lateralTargetMeters) * 1_500;
+
+  return candidate.score + currentLateralPenalty - replacementLateralPenalty;
 }
 
 function createTripleGreenWayPlans(

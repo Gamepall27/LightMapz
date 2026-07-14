@@ -122,6 +122,55 @@ through Luedenscheid.
      the `100 %` field-way goal was not geographically achievable in this
      response and is correctly reported as `70 %` rather than misrepresented.
 
+9. **Automatic field-way corridor anchors**
+   - New observation: a manually inserted waypoint west of the start produced
+     a `19.6 km` route with `80.6 %` path/track share. This is materially
+     better than the automatic maximum-detour result and demonstrates that a
+     waypoint at the *entry* to a field-way corridor can be more important
+     than a waypoint in its middle.
+   - Cause in the automatic search: its six one-waypoint attempts were simply
+     the globally highest-scoring OSM path/track centres. Several centres in
+     one middle section could consume all attempts, leaving the corridor entry
+     untested.
+   - Change: at strictness `100`, the automatic search now reserves one
+     one-waypoint BRouter request for the entry, middle and exit of each side
+     of the direct route. These internal anchors behave like automatically
+     created manual waypoints; BRouter still calculates the complete route and
+     the existing ranking selects the route with the best actual field-way
+     share.
+   - Guardrail: the six distributed anchors are supplemented by the six
+     previously strongest global candidates. This prevents a sparse corridor
+     entry/exit distribution from discarding a previously viable mapped route;
+     the one-waypoint request budget is bounded at twelve.
+   - Regression test: six more attractive middle candidates no longer hide a
+     lower-scoring corridor-entry candidate. The entry is tried automatically
+     and its `100 %` path/track result wins. `npm test && npm run build` passes
+     with 25 backend tests.
+
+10. **Inner corridor-entry alternatives**
+    - Live check after the first anchor change: the route returned to the
+      stable westward result (`18.043 km`, `70.8 %` path/track) once all former
+      strong candidates were retained, but it still did not reach the manual
+      waypoint's `80.6 %` share.
+    - Hypothesis: the maximum detour target favours anchors about `6 km` from
+      the direct line. The manual waypoint demonstrates that entering a nearer
+      field-way corridor first can create a better complete route.
+    - Change: for each side, the automatic search now also tries an early
+      anchor targeted at about `65 %` of the selected lateral detour (capped at
+      `2–4 km`). It retains the large-detour candidates and the global top six,
+      then ranks the resulting BRouter routes by actual field-way share.
+    - Cost: at most two extra BRouter requests at the maximum level; the
+      one-waypoint plan budget is now at most fourteen. Backend tests still
+      pass (25).
+    - Live check: the immediate external request again returned BRouter's
+      direct fallback (`9.769 km`, `59 %` field-way share), even though a
+      direct Overpass query returned `12,810` usable path/track objects in the
+      same bounding box. This is an intermittent external candidate/route
+      availability issue, not proof that the `80.6 %` manual result has been
+      automatically reproduced. Keep manual waypoints available as the
+      explicit reliable override while further live route diagnostics are
+      added.
+
 ## Regression coverage
 
 - `backend/test/brouter-routing-engine.test.ts` includes a test that requires a

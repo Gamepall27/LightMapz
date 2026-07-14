@@ -19,6 +19,8 @@ test("POST /route returns a route result", async () => {
       profile: "bike",
       roadAvoidanceStrictness: 75,
       preferForestWays: true,
+      greenwayDetourRadiusKm: 12,
+      minimumFieldWaySharePercent: 80,
     },
   });
 
@@ -59,6 +61,8 @@ test("POST /route validates request body", async () => {
       profile: "car",
       roadAvoidanceStrictness: 150,
       preferForestWays: "yes",
+      greenwayDetourRadiusKm: 200,
+      minimumFieldWaySharePercent: 120,
     },
   });
 

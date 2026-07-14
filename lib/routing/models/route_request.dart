@@ -6,7 +6,8 @@ class RouteRequest {
     required this.destination,
     required this.roadAvoidanceStrictness,
     this.waypoints = const [],
-    this.preferForestWays = false,
+    this.greenwayDetourRadiusKm,
+    this.minimumFieldWaySharePercent,
     this.profile = 'bike',
   });
 
@@ -20,7 +21,8 @@ class RouteRequest {
   /// A future backend can translate this value into BRouter profile parameters,
   /// GraphHopper custom model weights, or a service-specific routing profile.
   final int roadAvoidanceStrictness;
-  final bool preferForestWays;
+  final int? greenwayDetourRadiusKm;
+  final int? minimumFieldWaySharePercent;
 
   Map<String, dynamic> toJson() {
     return {
@@ -29,7 +31,10 @@ class RouteRequest {
       'waypoints': waypoints.map((point) => point.toJson()).toList(),
       'profile': profile,
       'roadAvoidanceStrictness': roadAvoidanceStrictness,
-      'preferForestWays': preferForestWays,
+      if (greenwayDetourRadiusKm != null)
+        'greenwayDetourRadiusKm': greenwayDetourRadiusKm,
+      if (minimumFieldWaySharePercent != null)
+        'minimumFieldWaySharePercent': minimumFieldWaySharePercent,
     };
   }
 }

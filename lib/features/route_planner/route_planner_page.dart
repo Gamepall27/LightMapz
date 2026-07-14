@@ -182,6 +182,20 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
                               onChanged:
                                   controller.updateRoadAvoidanceStrictness,
                             ),
+                            if (controller.roadAvoidanceStrictness == 100) ...[
+                              const SizedBox(height: 12),
+                              GreenwayDetourRadiusSlider(
+                                value: controller.greenwayDetourRadiusKm,
+                                onChanged:
+                                    controller.updateGreenwayDetourRadiusKm,
+                              ),
+                              const SizedBox(height: 12),
+                              MinimumFieldWayShareSlider(
+                                value: controller.minimumFieldWaySharePercent,
+                                onChanged: controller
+                                    .updateMinimumFieldWaySharePercent,
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             FilledButton.icon(
                               onPressed: controller.isLoading
@@ -392,9 +406,7 @@ class _RoutePlannerPageState extends State<RoutePlannerPage> {
           builder: (context, _) {
             return _RoutePlannerSettingsDialog(
               averageSpeedKmh: controller.averageSpeedKmh,
-              preferForestWays: controller.preferForestWays,
               onAverageSpeedChanged: controller.updateAverageSpeedKmh,
-              onPreferForestWaysChanged: controller.updatePreferForestWays,
             );
           },
         );
@@ -493,15 +505,11 @@ class _MapPointActionsSheet extends StatelessWidget {
 class _RoutePlannerSettingsDialog extends StatefulWidget {
   const _RoutePlannerSettingsDialog({
     required this.averageSpeedKmh,
-    required this.preferForestWays,
     required this.onAverageSpeedChanged,
-    required this.onPreferForestWaysChanged,
   });
 
   final double averageSpeedKmh;
-  final bool preferForestWays;
   final ValueChanged<double> onAverageSpeedChanged;
-  final ValueChanged<bool> onPreferForestWaysChanged;
 
   @override
   State<_RoutePlannerSettingsDialog> createState() =>
@@ -600,20 +608,6 @@ class _RoutePlannerSettingsDialogState
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
-            ),
-            const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              key: const Key('prefer_forest_ways_checkbox'),
-              value: widget.preferForestWays,
-              onChanged: (value) {
-                widget.onPreferForestWaysChanged(value ?? false);
-              },
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: const Text('Waldwege bevorzugen'),
-              subtitle: const Text('Weniger straßenbegleitende Wege'),
             ),
           ],
         ),

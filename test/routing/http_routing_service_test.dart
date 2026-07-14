@@ -86,7 +86,6 @@ void main() {
         'waypoints': [],
         'profile': 'bike',
         'roadAvoidanceStrictness': 75,
-        'preferForestWays': false,
       });
       expect(result.distanceMeters, 42100);
       expect(result.geometry, hasLength(2));

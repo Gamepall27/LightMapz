@@ -17,6 +17,18 @@ type BRouterCandidateResult = {
   score: number;
 };
 
+const EXTREME_GREENWAY_SEARCH_MULTIPLIER = 1.5;
+const EXTREME_GREENWAY_SEARCH_MIN_METERS = 10_000;
+const EXTREME_GREENWAY_SEARCH_DEFAULT_MAX_METERS = 12_000;
+// Wider bounding boxes cause Overpass to time out for the default route and
+// make BRouter fall back to the undesired direct route.
+const EXTREME_GREENWAY_SEARCH_USER_MAX_METERS = 12_000;
+const EXTREME_GREENWAY_PROGRESS_MIN = -0.1;
+const EXTREME_GREENWAY_PROGRESS_MAX = 1.1;
+const EXTREME_GREENWAY_MIN_LATERAL_METERS = 500;
+const EXTREME_GREENWAY_MAX_DETOUR_RATIO = 4;
+const EXTREME_GREENWAY_MIN_MAX_DISTANCE_METERS = 15_000;
+
 export class BRouterRoutingEngine implements RoutingEngine {
   constructor(
     private readonly baseUrl = "https://brouter.de/brouter",
@@ -28,12 +40,28 @@ export class BRouterRoutingEngine implements RoutingEngine {
     request: RouteRequest,
     context: RoutingEngineContext,
   ): Promise<RouteResult> {
+    const preferForestWays = shouldPreferForestWays(
+      request,
+      context.profileRules.bucket,
+    );
+    const directDistanceMeters = calculateDistanceMeters(
+      request.start,
+      request.destination,
+    );
+    const desiredLateralDetourMeters =
+      context.profileRules.bucket === 100 && preferForestWays
+        ? getDesiredGreenwayLateralDetourMeters(request, directDistanceMeters)
+        : null;
     const plans = [
       ...(await this.createMappedGreenWayCandidatePlans(
         request,
         context.profileRules.bucket,
+        preferForestWays,
       )),
-      ...toBRouterCandidatePlans(context.profileRules.bucket),
+      ...toBRouterCandidatePlans(
+        context.profileRules.bucket,
+        preferForestWays,
+      ),
     ];
     const candidates: BRouterCandidateResult[] = [];
     let firstError: unknown = null;
@@ -47,7 +75,8 @@ export class BRouterRoutingEngine implements RoutingEngine {
           score: scoreRouteForRoadAvoidance(
             result,
             context.profileRules.bucket,
-            request.preferForestWays,
+            preferForestWays,
+            desiredLateralDetourMeters,
           ),
         });
       } catch (error) {
@@ -61,8 +90,40 @@ export class BRouterRoutingEngine implements RoutingEngine {
         : new Error("BRouter did not return any route candidates.");
     }
 
-    candidates.sort((left, right) => left.score - right.score);
-    return candidates[0].result;
+    const mappedGreenwayCandidates =
+      context.profileRules.bucket === 100 && preferForestWays
+        ? candidates.filter((candidate) => {
+            return isUsableMappedGreenwayRoute(
+              candidate,
+              directDistanceMeters,
+              desiredLateralDetourMeters,
+            );
+          })
+        : [];
+    const minimumFieldWaySharePercent =
+      getMinimumFieldWaySharePercent(request);
+    const candidatesMeetingMinimumFieldWayShare =
+      context.profileRules.bucket === 100 && preferForestWays
+        ? mappedGreenwayCandidates.filter((candidate) => {
+            return (
+              calculateForestPreferenceShares(candidate.result)
+                .forestLikePathShare >= minimumFieldWaySharePercent
+            );
+          })
+        : [];
+    const rankedCandidates =
+      candidatesMeetingMinimumFieldWayShare.length > 0
+        ? candidatesMeetingMinimumFieldWayShare
+        : mappedGreenwayCandidates.length > 0
+          ? mappedGreenwayCandidates
+        : candidates;
+
+    rankedCandidates.sort((left, right) => left.score - right.score);
+    return addMinimumFieldWayShareWarning(
+      rankedCandidates[0].result,
+      context.profileRules.bucket,
+      minimumFieldWaySharePercent,
+    );
   }
 
   private async fetchRoute(
@@ -99,8 +160,11 @@ export class BRouterRoutingEngine implements RoutingEngine {
   private async createMappedGreenWayCandidatePlans(
     request: RouteRequest,
     bucket: RoadAvoidanceBucket,
+    preferForestWays: boolean,
   ): Promise<BRouterCandidatePlan[]> {
-    if (bucket !== 100 || this.overpassUrl === null) {
+    const shouldMapGreenWays = bucket === 100 || preferForestWays;
+
+    if (!shouldMapGreenWays || this.overpassUrl === null) {
       return [];
     }
 
@@ -121,6 +185,7 @@ export class BRouterRoutingEngine implements RoutingEngine {
         request,
         directDistanceMeters,
         this.overpassUrl,
+        preferForestWays,
       );
     } catch {
       return [];
@@ -190,7 +255,10 @@ function parseSegments(messages: unknown[][]): ParsedRouteSegment[] {
 
       return {
         distanceMeters,
-        surface: readTag(wayTags, "surface") ?? "unknown",
+        surface:
+          readTag(wayTags, "surface") ??
+          readTag(wayTags, "tracktype") ??
+          "unknown",
         wayType: readTag(wayTags, "highway") ?? "unknown",
         roadClass: classifyRoad(wayTags),
       };
@@ -256,62 +324,60 @@ function readTag(wayTags: string, key: string): string | null {
 
 function toBRouterCandidatePlans(
   bucket: RoadAvoidanceBucket,
+  preferForestWays: boolean,
 ): BRouterCandidatePlan[] {
   switch (bucket) {
     case 0:
-      return [{ profile: "fastbike", alternativeIdx: 0 }];
+      return preferForestWays
+        ? [
+            { profile: "fastbike", alternativeIdx: 0 },
+            { profile: "trekking", alternativeIdx: 0 },
+            { profile: "mtb", alternativeIdx: 0 },
+          ]
+        : [{ profile: "fastbike", alternativeIdx: 0 }];
     case 25:
-      return [{ profile: "trekking", alternativeIdx: 0 }];
+      return preferForestWays
+        ? [
+            { profile: "trekking", alternativeIdx: 0 },
+            { profile: "gravel", alternativeIdx: 0 },
+            { profile: "mtb", alternativeIdx: 0 },
+          ]
+        : [{ profile: "trekking", alternativeIdx: 0 }];
     case 50:
-      return [{ profile: "safety", alternativeIdx: 0 }];
+      return preferForestWays
+        ? [
+            { profile: "safety", alternativeIdx: 0 },
+            { profile: "trekking", alternativeIdx: 0 },
+            { profile: "gravel", alternativeIdx: 0 },
+            { profile: "mtb", alternativeIdx: 0 },
+          ]
+        : [{ profile: "safety", alternativeIdx: 0 }];
     case 75:
-      return [
-        { profile: "safety", alternativeIdx: 0 },
-        { profile: "safety", alternativeIdx: 1 },
-        { profile: "trekking", alternativeIdx: 0 },
-      ];
+      return preferForestWays
+        ? [
+            { profile: "safety", alternativeIdx: 0 },
+            { profile: "safety", alternativeIdx: 1 },
+            { profile: "trekking", alternativeIdx: 0 },
+            { profile: "gravel", alternativeIdx: 0 },
+            { profile: "gravel", alternativeIdx: 1 },
+            { profile: "mtb", alternativeIdx: 0 },
+            { profile: "mtb", alternativeIdx: 1 },
+          ]
+        : [
+            { profile: "safety", alternativeIdx: 0 },
+            { profile: "safety", alternativeIdx: 1 },
+            { profile: "trekking", alternativeIdx: 0 },
+          ];
     case 100:
       return [
         { profile: "safety", alternativeIdx: 0 },
         { profile: "safety", alternativeIdx: 1 },
-        { profile: "safety", alternativeIdx: 2 },
-        { profile: "safety", alternativeIdx: 3 },
         { profile: "trekking", alternativeIdx: 0 },
         { profile: "trekking", alternativeIdx: 1 },
-        { profile: "trekking", alternativeIdx: 2 },
-        { profile: "trekking", alternativeIdx: 3 },
         { profile: "mtb", alternativeIdx: 0 },
         { profile: "mtb", alternativeIdx: 1 },
-        { profile: "mtb", alternativeIdx: 2 },
-        { profile: "mtb", alternativeIdx: 3 },
         { profile: "gravel", alternativeIdx: 0 },
         { profile: "gravel", alternativeIdx: 1 },
-        { profile: "gravel", alternativeIdx: 2 },
-        { profile: "gravel", alternativeIdx: 3 },
-        { profile: "quaelnix-gravel", alternativeIdx: 0 },
-        { profile: "quaelnix-gravel", alternativeIdx: 1 },
-        { profile: "quaelnix-gravel", alternativeIdx: 2 },
-        { profile: "quaelnix-gravel", alternativeIdx: 3 },
-        { profile: "MTB_SB_light", alternativeIdx: 0 },
-        { profile: "MTB_SB_light", alternativeIdx: 1 },
-        { profile: "MTB_SB_light", alternativeIdx: 2 },
-        { profile: "MTB_SB_light", alternativeIdx: 3 },
-        { profile: "hiking-beta", alternativeIdx: 0 },
-        { profile: "hiking-beta", alternativeIdx: 1 },
-        { profile: "hiking-beta", alternativeIdx: 2 },
-        { profile: "hiking-beta", alternativeIdx: 3 },
-        { profile: "hiking_SB", alternativeIdx: 0 },
-        { profile: "hiking_SB", alternativeIdx: 1 },
-        { profile: "hiking_SB", alternativeIdx: 2 },
-        { profile: "hiking_SB", alternativeIdx: 3 },
-        { profile: "hiking-mountain", alternativeIdx: 0 },
-        { profile: "hiking-mountain", alternativeIdx: 1 },
-        { profile: "hiking-mountain", alternativeIdx: 2 },
-        { profile: "hiking-mountain", alternativeIdx: 3 },
-        { profile: "shortest", alternativeIdx: 0 },
-        { profile: "shortest", alternativeIdx: 1 },
-        { profile: "shortest", alternativeIdx: 2 },
-        { profile: "shortest", alternativeIdx: 3 },
       ];
   }
 }
@@ -332,33 +398,27 @@ type GreenWayCandidate = {
   progress: number;
   side: number;
   lateralDistanceMeters: number;
-  forestDistanceMeters: number | null;
   score: number;
-};
-
-type ForestCandidate = {
-  point: LatLng;
 };
 
 async function fetchMappedGreenWayCandidatePlans(
   request: RouteRequest,
   directDistanceMeters: number,
   overpassUrl: string,
+  preferForestWays: boolean,
 ): Promise<BRouterCandidatePlan[]> {
-  const bbox = createSearchBoundingBox(request, directDistanceMeters);
-  const forestQuery = request.preferForestWays
-    ? `
-      way["landuse"="forest"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-      relation["landuse"="forest"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-      way["natural"="wood"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-      relation["natural"="wood"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-    `
-    : "";
+  const desiredLateralDetourMeters = preferForestWays
+    ? getDesiredGreenwayLateralDetourMeters(request, directDistanceMeters)
+    : null;
+  const bbox = createSearchBoundingBox(
+    request,
+    directDistanceMeters,
+    preferForestWays,
+  );
   const query = `
-    [out:json][timeout:8];
-    (
-      way["highway"~"^(track|cycleway|path|bridleway|footway|pedestrian)$"](${bbox.south},${bbox.west},${bbox.north},${bbox.east});
-      ${forestQuery}
+    [out:json][timeout:12];
+    way["highway"~"^(track|cycleway|path|bridleway)$"](
+      ${bbox.south},${bbox.west},${bbox.north},${bbox.east}
     );
     out center tags;
   `;
@@ -379,16 +439,15 @@ async function fetchMappedGreenWayCandidatePlans(
 
   const json = (await response.json()) as OverpassResponse;
   const elements = json.elements ?? [];
-  const forestCandidates = request.preferForestWays
-    ? elements
-        .map(toForestCandidate)
-        .filter((candidate): candidate is ForestCandidate => {
-          return candidate !== null;
-        })
-    : [];
   const candidates = elements
     .map((element) =>
-      toGreenWayCandidate(element, request, forestCandidates),
+      toGreenWayCandidate(
+        element,
+        request,
+        directDistanceMeters,
+        preferForestWays,
+        desiredLateralDetourMeters,
+      ),
     )
     .filter((candidate): candidate is GreenWayCandidate => {
       return candidate !== null;
@@ -396,17 +455,22 @@ async function fetchMappedGreenWayCandidatePlans(
     .sort((left, right) => right.score - left.score);
 
   return [
-    ...createSingleGreenWayPlans(candidates, request.preferForestWays),
-    ...createPairedGreenWayPlans(candidates, request.preferForestWays),
+    ...createSingleGreenWayPlans(candidates, preferForestWays),
+    ...createTripleGreenWayPlans(candidates, preferForestWays),
+    ...createQuadGreenWayPlans(candidates, preferForestWays),
+    ...createPairedGreenWayPlans(candidates, preferForestWays),
   ];
 }
 
 function createSearchBoundingBox(
   request: RouteRequest,
   directDistanceMeters: number,
+  preferForestWays: boolean,
 ) {
   const centerLat = (request.start.lat + request.destination.lat) / 2;
-  const marginMeters = clamp(directDistanceMeters * 1.8, 2500, 9000);
+  const marginMeters = preferForestWays
+    ? getExtremeGreenwaySearchRadiusMeters(request, directDistanceMeters)
+    : clamp(directDistanceMeters * 1.8, 2500, 9000);
   const latMargin = marginMeters / 111_320;
   const lngMargin = latMargin / Math.max(0.2, Math.cos(toRadians(centerLat)));
 
@@ -418,10 +482,61 @@ function createSearchBoundingBox(
   };
 }
 
+function getExtremeGreenwaySearchRadiusMeters(
+  request: RouteRequest,
+  directDistanceMeters: number,
+): number {
+  const requestedMeters =
+    typeof request.greenwayDetourRadiusKm === "number" &&
+    Number.isFinite(request.greenwayDetourRadiusKm)
+      ? request.greenwayDetourRadiusKm * 1000
+      : null;
+
+  if (requestedMeters !== null) {
+    return clamp(
+      requestedMeters,
+      EXTREME_GREENWAY_SEARCH_MIN_METERS,
+      EXTREME_GREENWAY_SEARCH_USER_MAX_METERS,
+    );
+  }
+
+  return clamp(
+    directDistanceMeters * EXTREME_GREENWAY_SEARCH_MULTIPLIER,
+    EXTREME_GREENWAY_SEARCH_MIN_METERS,
+    EXTREME_GREENWAY_SEARCH_DEFAULT_MAX_METERS,
+  );
+}
+
+function getDesiredGreenwayLateralDetourMeters(
+  request: RouteRequest,
+  directDistanceMeters: number,
+): number {
+  const requestedMeters =
+    typeof request.greenwayDetourRadiusKm === "number" &&
+    Number.isFinite(request.greenwayDetourRadiusKm)
+      ? clamp(
+          request.greenwayDetourRadiusKm * 1000,
+          5_000,
+          EXTREME_GREENWAY_SEARCH_USER_MAX_METERS,
+        )
+      : clamp(
+          directDistanceMeters * EXTREME_GREENWAY_SEARCH_MULTIPLIER,
+          EXTREME_GREENWAY_SEARCH_MIN_METERS,
+          EXTREME_GREENWAY_SEARCH_DEFAULT_MAX_METERS,
+        );
+
+  // The setting describes the size of the desired detour. A detour of 5 km
+  // therefore targets greenways roughly 2.5 km away from the direct line,
+  // while the maximum setting can deliberately use a corridor up to 6 km away.
+  return clamp(requestedMeters * 0.5, 2_000, 6_000);
+}
+
 function toGreenWayCandidate(
   element: NonNullable<OverpassResponse["elements"]>[number],
   request: RouteRequest,
-  forestCandidates: ForestCandidate[],
+  directDistanceMeters: number,
+  preferForestWays: boolean,
+  desiredLateralDetourMeters: number | null,
 ): GreenWayCandidate | null {
   if (!isBikeUsableGreenWay(element.tags ?? {})) {
     return null;
@@ -445,26 +560,35 @@ function toGreenWayCandidate(
     request.destination,
   );
 
+  const minProgress = preferForestWays
+    ? EXTREME_GREENWAY_PROGRESS_MIN
+    : 0.08;
+  const maxProgress = preferForestWays
+    ? EXTREME_GREENWAY_PROGRESS_MAX
+    : 0.92;
+  const minLateralMeters = preferForestWays
+    ? EXTREME_GREENWAY_MIN_LATERAL_METERS
+    : 500;
+
   if (
-    position.progress < 0.08 ||
-    position.progress > 0.92 ||
-    Math.abs(position.lateralDistanceMeters) < 500
+    position.progress < minProgress ||
+    position.progress > maxProgress ||
+    Math.abs(position.lateralDistanceMeters) < minLateralMeters
   ) {
     return null;
   }
 
+  const desiredLateralMeters =
+    desiredLateralDetourMeters ??
+    clamp(directDistanceMeters * 0.6, 2_000, 6_000);
+  const lateralDetourPenalty =
+    Math.abs(Math.abs(position.lateralDistanceMeters) - desiredLateralMeters) *
+    1_500;
   const distanceFromEndsPenalty =
-    Math.abs(position.progress - 0.5) * 300;
+    Math.abs(position.progress - 0.5) * 1_000_000;
   const point = { lat, lng };
-  const forestDistanceMeters = findNearestForestDistanceMeters(
-    point,
-    forestCandidates,
-  );
-  const forestScore = request.preferForestWays
-    ? calculateForestCandidateScore(
-        element.tags ?? {},
-        forestDistanceMeters,
-      )
+  const forestScore = preferForestWays
+    ? calculateForestCandidateScore(element.tags ?? {})
     : 0;
 
   return {
@@ -472,56 +596,14 @@ function toGreenWayCandidate(
     progress: position.progress,
     side: Math.sign(position.lateralDistanceMeters) || 1,
     lateralDistanceMeters: Math.abs(position.lateralDistanceMeters),
-    forestDistanceMeters,
     score:
-      position.lateralDistanceMeters ** 2 -
-      distanceFromEndsPenalty +
-      forestScore,
+      forestScore - lateralDetourPenalty - distanceFromEndsPenalty,
   };
 }
 
-function toForestCandidate(
-  element: NonNullable<OverpassResponse["elements"]>[number],
-): ForestCandidate | null {
-  const tags = element.tags ?? {};
-
-  if (tags.landuse !== "forest" && tags.natural !== "wood") {
-    return null;
-  }
-
-  const point = toElementPoint(element);
-
-  return point === null ? null : { point };
-}
-
-function toElementPoint(
-  element: NonNullable<OverpassResponse["elements"]>[number],
-): LatLng | null {
-  const lat = element.center?.lat;
-  const lng = element.center?.lon;
-
-  if (
-    typeof lat !== "number" ||
-    typeof lng !== "number" ||
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng)
-  ) {
-    return null;
-  }
-
-  return { lat, lng };
-}
-
-function calculateForestCandidateScore(
-  tags: Record<string, string>,
-  forestDistanceMeters: number | null,
-): number {
+function calculateForestCandidateScore(tags: Record<string, string>): number {
   const highway = tags.highway;
   const surface = tags.surface;
-  const forestProximityScore =
-    forestDistanceMeters === null
-      ? 0
-      : Math.max(0, 3000 - forestDistanceMeters) * 7000;
   const wayTypeScore =
     highway === "track"
       ? 10_000_000
@@ -534,7 +616,7 @@ function calculateForestCandidateScore(
             : 0;
   const surfaceScore = isNaturalOrLooseSurface(surface) ? 3_000_000 : 0;
 
-  return forestProximityScore + wayTypeScore + surfaceScore;
+  return wayTypeScore + surfaceScore;
 }
 
 function isBikeUsableGreenWay(tags: Record<string, string>): boolean {
@@ -567,12 +649,110 @@ function createSingleGreenWayPlans(
   preferForestWays: boolean,
 ): BRouterCandidatePlan[] {
   const profile = preferForestWays ? "mtb" : "safety";
+  const limit = preferForestWays ? 6 : 8;
 
-  return candidates.slice(0, 8).map((candidate) => ({
+  return candidates.slice(0, limit).map((candidate) => ({
     profile,
     alternativeIdx: 0,
     viaPoints: [candidate.point],
   }));
+}
+
+function createTripleGreenWayPlans(
+  candidates: GreenWayCandidate[],
+  preferForestWays: boolean,
+): BRouterCandidatePlan[] {
+  if (!preferForestWays) {
+    return [];
+  }
+
+  const plans: BRouterCandidatePlan[] = [];
+
+  for (const side of [-1, 1]) {
+    const sameSide = candidates.filter((candidate) => candidate.side === side);
+    const [first] = selectTopCandidatesInProgressRange(
+      sameSide,
+      -0.1,
+      0.34,
+      1,
+    );
+    const [second] = selectTopCandidatesInProgressRange(
+      sameSide,
+      0.34,
+      0.66,
+      1,
+    );
+    const [third] = selectTopCandidatesInProgressRange(
+      sameSide,
+      0.66,
+      1.1,
+      1,
+    );
+
+    if (first !== undefined && second !== undefined && third !== undefined) {
+      plans.push({
+        profile: "mtb",
+        alternativeIdx: 0,
+        viaPoints: [first.point, second.point, third.point],
+      });
+    }
+  }
+
+  return plans;
+}
+
+function createQuadGreenWayPlans(
+  candidates: GreenWayCandidate[],
+  preferForestWays: boolean,
+): BRouterCandidatePlan[] {
+  if (!preferForestWays) {
+    return [];
+  }
+
+  const plans: BRouterCandidatePlan[] = [];
+
+  for (const side of [-1, 1]) {
+    const sameSide = candidates.filter((candidate) => candidate.side === side);
+    const [first] = selectTopCandidatesInProgressRange(
+      sameSide,
+      -0.1,
+      0.25,
+      1,
+    );
+    const [second] = selectTopCandidatesInProgressRange(
+      sameSide,
+      0.25,
+      0.5,
+      1,
+    );
+    const [third] = selectTopCandidatesInProgressRange(
+      sameSide,
+      0.5,
+      0.75,
+      1,
+    );
+    const [fourth] = selectTopCandidatesInProgressRange(
+      sameSide,
+      0.75,
+      1.1,
+      1,
+    );
+
+    if (
+      first !== undefined &&
+      second !== undefined &&
+      third !== undefined &&
+      fourth !== undefined
+    ) {
+      plans.push({
+        profile: "mtb",
+        alternativeIdx: 0,
+        viaPoints: [first.point, second.point, third.point, fourth.point],
+      });
+    }
+  }
+
+  return plans;
 }
 
 function createPairedGreenWayPlans(
@@ -583,15 +763,13 @@ function createPairedGreenWayPlans(
   const profile = preferForestWays ? "mtb" : "safety";
 
   for (const side of [-1, 1]) {
-    const sameSide = candidates
-      .filter((candidate) => candidate.side === side)
-      .sort((left, right) => left.progress - right.progress);
-    const early = sameSide
-      .filter((candidate) => candidate.progress < 0.5)
-      .slice(0, 4);
-    const late = sameSide
-      .filter((candidate) => candidate.progress >= 0.5)
-      .slice(-4);
+    const sameSide = candidates.filter((candidate) => candidate.side === side);
+    const early = preferForestWays
+      ? selectTopCandidatesInProgressRange(sameSide, -0.1, 0.5, 1)
+      : sameSide.filter((candidate) => candidate.progress < 0.5).slice(0, 4);
+    const late = preferForestWays
+      ? selectTopCandidatesInProgressRange(sameSide, 0.5, 1.1, 1)
+      : sameSide.filter((candidate) => candidate.progress >= 0.5).slice(-4);
 
     for (const first of early) {
       for (const second of late) {
@@ -604,7 +782,24 @@ function createPairedGreenWayPlans(
     }
   }
 
-  return plans.slice(0, 12);
+  return plans.slice(0, preferForestWays ? 2 : 12);
+}
+
+function selectTopCandidatesInProgressRange(
+  candidates: GreenWayCandidate[],
+  minProgress: number,
+  maxProgress: number,
+  limit: number,
+): GreenWayCandidate[] {
+  return candidates
+    .filter((candidate) => {
+      return (
+        candidate.progress >= minProgress && candidate.progress < maxProgress
+      );
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .sort((left, right) => left.progress - right.progress);
 }
 
 function projectPointOntoRoute(
@@ -667,25 +862,6 @@ function calculateDistanceMeters(start: LatLng, destination: LatLng): number {
   );
 }
 
-function findNearestForestDistanceMeters(
-  point: LatLng,
-  forestCandidates: ForestCandidate[],
-): number | null {
-  if (forestCandidates.length === 0) {
-    return null;
-  }
-
-  return forestCandidates.reduce<number | null>((nearest, candidate) => {
-    const distance = calculateDistanceMeters(point, candidate.point);
-
-    if (nearest === null || distance < nearest) {
-      return distance;
-    }
-
-    return nearest;
-  }, null);
-}
-
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
 }
@@ -694,20 +870,104 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function shouldPreferForestWays(
+  request: RouteRequest,
+  bucket: RoadAvoidanceBucket,
+): boolean {
+  return request.preferForestWays || bucket === 100;
+}
+
+function getMinimumFieldWaySharePercent(request: RouteRequest): number {
+  const requested = request.minimumFieldWaySharePercent;
+
+  if (typeof requested !== "number" || !Number.isFinite(requested)) {
+    return 45;
+  }
+
+  return clamp(requested, 0, 100);
+}
+
+function isUsableMappedGreenwayRoute(
+  candidate: BRouterCandidateResult,
+  directDistanceMeters: number,
+  desiredLateralDetourMeters: number | null,
+): boolean {
+  if ((candidate.plan.viaPoints?.length ?? 0) === 0) {
+    return false;
+  }
+
+  const maxDistanceMeters = Math.max(
+    EXTREME_GREENWAY_MIN_MAX_DISTANCE_METERS,
+    desiredLateralDetourMeters === null
+      ? directDistanceMeters * EXTREME_GREENWAY_MAX_DETOUR_RATIO
+      : directDistanceMeters + desiredLateralDetourMeters * 3,
+  );
+
+  if (candidate.result.distanceMeters > maxDistanceMeters) {
+    return false;
+  }
+
+  const shares = calculateForestPreferenceShares(candidate.result);
+
+  return (
+    shares.forestLikePathShare >= 45 &&
+    candidate.result.roadSharePercent <= 45
+  );
+}
+
+function addMinimumFieldWayShareWarning(
+  result: RouteResult,
+  bucket: RoadAvoidanceBucket,
+  minimumFieldWaySharePercent: number,
+): RouteResult {
+  if (bucket !== 100) {
+    return result;
+  }
+
+  const actualFieldWaySharePercent =
+    calculateForestPreferenceShares(result).forestLikePathShare;
+
+  if (actualFieldWaySharePercent >= minimumFieldWaySharePercent) {
+    return result;
+  }
+
+  return {
+    ...result,
+    warnings: [
+      ...result.warnings,
+      `Der gewünschte Feld-/Waldweganteil von ${Math.round(minimumFieldWaySharePercent)} % wurde nicht erreicht (${Math.round(actualFieldWaySharePercent)} %).`,
+    ],
+  };
+}
+
 function scoreRouteForRoadAvoidance(
   route: RouteResult,
   bucket: RoadAvoidanceBucket,
   preferForestWays: boolean,
+  desiredLateralDetourMeters: number | null,
 ): number {
-  const shapePenalty = scoreRouteShapePenalty(route.geometry, bucket);
+  const shapePenaltyMultiplier =
+    bucket === 100 && preferForestWays ? 8 : 1;
+  const shapePenalty =
+    scoreRouteShapePenalty(route.geometry, bucket, preferForestWays) *
+    shapePenaltyMultiplier;
+  const forestPreferenceAdjustment = preferForestWays
+    ? scoreForestPreferenceAdjustment(route, bucket)
+    : 0;
+  const detourTargetPenalty =
+    bucket === 100 && preferForestWays && desiredLateralDetourMeters !== null
+      ? scoreExtremeGreenwayDetourTarget(route.geometry, desiredLateralDetourMeters)
+      : 0;
 
   if (bucket <= 50) {
-    return route.distanceMeters + shapePenalty;
+    return route.distanceMeters + shapePenalty + forestPreferenceAdjustment;
   }
 
   if (bucket === 100) {
     if (preferForestWays) {
-      return scoreForestPreferredRoute(route) + shapePenalty;
+      return (
+        scoreForestPreferredRoute(route) + shapePenalty + detourTargetPenalty
+      );
     }
 
     return (
@@ -741,17 +1001,98 @@ function scoreRouteForRoadAvoidance(
     return sum + segment.distanceMeters * weights.unknownRoad;
   }, 0);
 
-  return route.distanceMeters + roadPenalty + shapePenalty;
+  return (
+    route.distanceMeters +
+    roadPenalty +
+    shapePenalty +
+    forestPreferenceAdjustment
+  );
+}
+
+function scoreExtremeGreenwayDetourTarget(
+  geometry: LatLng[],
+  desiredLateralDetourMeters: number,
+): number {
+  if (geometry.length < 3) {
+    return 0;
+  }
+
+  const start = geometry[0];
+  const destination = geometry.at(-1);
+
+  if (destination === undefined) {
+    return 0;
+  }
+
+  let actualLateralDetourMeters = 0;
+
+  for (const point of geometry) {
+    actualLateralDetourMeters = Math.max(
+      actualLateralDetourMeters,
+      Math.abs(
+        projectPointOntoRoute(point, start, destination).lateralDistanceMeters,
+      ),
+    );
+  }
+
+  // A one-kilometre mismatch is intentionally material at the maximum
+  // avoidance level. Otherwise the field-way percentages dominate every
+  // candidate and the detour-size control cannot influence the selected route.
+  return (
+    Math.abs(actualLateralDetourMeters - desiredLateralDetourMeters) *
+    20_000_000
+  );
 }
 
 function scoreForestPreferredRoute(route: RouteResult): number {
+  const shares = calculateForestPreferenceShares(route);
+
+  const forestFieldDeficit = 100 - shares.forestLikePathShare;
+  const naturalSurfaceDeficit = 100 - shares.naturalSurfaceShare;
+
+  return (
+    forestFieldDeficit * 5_000_000_000 +
+    route.roadSharePercent * 3_000_000_000 +
+    shares.roadAdjacentWayShare * 1_000_000_000 +
+    shares.pavedSurfaceShare * 800_000_000 +
+    naturalSurfaceDeficit * 500_000_000 +
+    shares.unknownSurfaceShare * 100_000_000 +
+    shares.nonNaturalSurfaceShare * 50_000_000 +
+    route.distanceMeters
+  );
+}
+
+function scoreForestPreferenceAdjustment(
+  route: RouteResult,
+  bucket: RoadAvoidanceBucket,
+): number {
+  const shares = calculateForestPreferenceShares(route);
+  const strength =
+    bucket === 0
+      ? 0.35
+      : bucket === 25
+        ? 0.5
+        : bucket === 50
+          ? 1
+          : 1.3;
+
+  return (
+    -shares.forestLikePathShare * 80 * strength -
+    shares.naturalSurfaceShare * 25 * strength +
+    shares.roadAdjacentWayShare * 30 * strength +
+    route.roadSharePercent * 60 * strength
+  );
+}
+
+function calculateForestPreferenceShares(route: RouteResult) {
   const totalMeters =
     route.segments.reduce((sum, segment) => {
       return sum + segment.distanceMeters;
     }, 0) ||
     route.distanceMeters ||
     1;
-  const shares = route.segments.reduce(
+
+  return route.segments.reduce(
     (result, segment) => {
       const share = (segment.distanceMeters / totalMeters) * 100;
 
@@ -771,8 +1112,16 @@ function scoreForestPreferredRoute(route: RouteResult): number {
         result.roadAdjacentWayShare += share;
       }
 
-      if (isNaturalOrLooseSurface(segment.surface)) {
+      if (segment.surface === "unknown") {
+        result.unknownSurfaceShare += share;
+      } else if (isNaturalOrLooseSurface(segment.surface)) {
         result.naturalSurfaceShare += share;
+      } else {
+        result.nonNaturalSurfaceShare += share;
+      }
+
+      if (isPavedOrRoadSurface(segment.surface)) {
+        result.pavedSurfaceShare += share;
       }
 
       return result;
@@ -781,21 +1130,17 @@ function scoreForestPreferredRoute(route: RouteResult): number {
       forestLikePathShare: 0,
       roadAdjacentWayShare: 0,
       naturalSurfaceShare: 0,
+      nonNaturalSurfaceShare: 0,
+      unknownSurfaceShare: 0,
+      pavedSurfaceShare: 0,
     },
-  );
-
-  return (
-    -shares.forestLikePathShare * 1_200_000 -
-    shares.naturalSurfaceShare * 250_000 +
-    shares.roadAdjacentWayShare * 450_000 +
-    route.roadSharePercent * 180_000 +
-    route.distanceMeters
   );
 }
 
 function scoreRouteShapePenalty(
   geometry: LatLng[],
   bucket: RoadAvoidanceBucket,
+  preferForestWays: boolean,
 ): number {
   if (geometry.length < 3 || bucket < 75) {
     return 0;
@@ -803,16 +1148,30 @@ function scoreRouteShapePenalty(
 
   const backtrackingMeters = calculateBacktrackingMeters(geometry);
   const retraceMeters = calculateRetraceMeters(geometry);
-  const lateralSpikeMeters = calculateLateralSpikeMeters(geometry);
+  const lateralSpikeMeters = calculateLateralSpikeMeters(
+    geometry,
+    bucket,
+    preferForestWays,
+  );
+  const backtrackingWeight =
+    bucket === 100 && preferForestWays ? 3_000_000_000 : 40_000;
+  const retraceWeight =
+    bucket === 100 && preferForestWays ? 3_000_000_000 : 120_000;
+  const lateralSpikeWeight =
+    bucket === 100 && preferForestWays ? 0 : 100_000;
 
   return (
-    backtrackingMeters * 40_000 +
-    retraceMeters * 120_000 +
-    lateralSpikeMeters * 100_000
+    backtrackingMeters * backtrackingWeight +
+    retraceMeters * retraceWeight +
+    lateralSpikeMeters * lateralSpikeWeight
   );
 }
 
-function calculateLateralSpikeMeters(geometry: LatLng[]): number {
+function calculateLateralSpikeMeters(
+  geometry: LatLng[],
+  bucket: RoadAvoidanceBucket,
+  preferForestWays: boolean,
+): number {
   const start = geometry[0];
   const destination = geometry.at(-1);
 
@@ -826,7 +1185,10 @@ function calculateLateralSpikeMeters(geometry: LatLng[]): number {
     return 0;
   }
 
-  const allowedCorridorMeters = clamp(directDistanceMeters * 0.12, 400, 1_800);
+  const allowedCorridorMeters =
+    bucket === 100 && preferForestWays
+      ? clamp(directDistanceMeters * 0.25, 2_500, 9_000)
+      : clamp(directDistanceMeters * 0.12, 400, 1_800);
   let maxExcessMeters = 0;
 
   for (const point of geometry) {
@@ -965,6 +1327,24 @@ function isNaturalOrLooseSurface(surface: string | null | undefined): boolean {
     "sand",
     "unpaved",
     "woodchips",
+    "grade1",
+    "grade2",
+    "grade3",
+    "grade4",
+    "grade5",
+  ].includes(surface ?? "");
+}
+
+function isPavedOrRoadSurface(surface: string | null | undefined): boolean {
+  return [
+    "asphalt",
+    "chipseal",
+    "concrete",
+    "concrete:lanes",
+    "concrete:plates",
+    "paved",
+    "paving_stones",
+    "sett",
   ].includes(surface ?? "");
 }
 

@@ -30,8 +30,9 @@ class RoutePlannerController extends ChangeNotifier {
   String destinationAddress = 'Homertturm, 58518 Lüdenscheid';
   List<RouteWaypoint> waypoints = const [];
   int roadAvoidanceStrictness = 50;
+  int greenwayDetourRadiusKm = 10;
+  int minimumFieldWaySharePercent = 60;
   double averageSpeedKmh = 18;
-  bool preferForestWays = false;
 
   RouteResult? route;
   bool isLoading = false;
@@ -184,16 +185,23 @@ class RoutePlannerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateAverageSpeedKmh(double value) {
-    averageSpeedKmh = value.clamp(5, 45).toDouble();
-    errorMessage = null;
+  void updateGreenwayDetourRadiusKm(int value) {
+    greenwayDetourRadiusKm = value.clamp(5, 12).toInt();
+    _clearRouteState();
+    _stopNavigationSubscriptions();
     notifyListeners();
   }
 
-  void updatePreferForestWays(bool value) {
-    preferForestWays = value;
+  void updateMinimumFieldWaySharePercent(int value) {
+    minimumFieldWaySharePercent = value.clamp(0, 100).toInt();
     _clearRouteState();
     _stopNavigationSubscriptions();
+    notifyListeners();
+  }
+
+  void updateAverageSpeedKmh(double value) {
+    averageSpeedKmh = value.clamp(5, 45).toDouble();
+    errorMessage = null;
     notifyListeners();
   }
 
@@ -282,7 +290,11 @@ class RoutePlannerController extends ChangeNotifier {
           destination: resolvedDestination,
           waypoints: resolvedWaypoints,
           roadAvoidanceStrictness: roadAvoidanceStrictness,
-          preferForestWays: preferForestWays,
+          greenwayDetourRadiusKm:
+              roadAvoidanceStrictness == 100 ? greenwayDetourRadiusKm : null,
+          minimumFieldWaySharePercent: roadAvoidanceStrictness == 100
+              ? minimumFieldWaySharePercent
+              : null,
         ),
       );
     } on Exception catch (error) {
@@ -677,7 +689,7 @@ class RoutePlannerController extends ChangeNotifier {
   }
 
   LatLng _projectPointToSegment(LatLng point, LatLng start, LatLng end) {
-    final metersPerDegreeLat = 111320.0;
+    const metersPerDegreeLat = 111320.0;
     final metersPerDegreeLng =
         metersPerDegreeLat * math.cos(_toRadians((start.lat + end.lat) / 2));
     final startX = start.lng * metersPerDegreeLng;

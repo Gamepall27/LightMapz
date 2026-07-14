@@ -12,6 +12,8 @@ export type RouteRequest = {
   profile: BikeProfile;
   roadAvoidanceStrictness: number;
   preferForestWays: boolean;
+  greenwayDetourRadiusKm?: number;
+  minimumFieldWaySharePercent?: number;
 };
 
 export type RouteSegment = {

@@ -51,6 +51,8 @@ function parseRouteRequest(body: unknown): ParseResult {
   const profile = body.profile;
   const roadAvoidanceStrictness = body.roadAvoidanceStrictness;
   const preferForestWays = body.preferForestWays;
+  const greenwayDetourRadiusKm = body.greenwayDetourRadiusKm;
+  const minimumFieldWaySharePercent = body.minimumFieldWaySharePercent;
 
   if (profile !== "bike") {
     errors.push('profile must be "bike".');
@@ -67,6 +69,30 @@ function parseRouteRequest(body: unknown): ParseResult {
     typeof preferForestWays !== "boolean"
   ) {
     errors.push("preferForestWays must be a boolean.");
+  }
+
+  if (
+    greenwayDetourRadiusKm !== undefined &&
+    !isNumber(greenwayDetourRadiusKm)
+  ) {
+    errors.push("greenwayDetourRadiusKm must be a number from 1 to 150.");
+  } else if (
+    isNumber(greenwayDetourRadiusKm) &&
+    (greenwayDetourRadiusKm < 1 || greenwayDetourRadiusKm > 150)
+  ) {
+    errors.push("greenwayDetourRadiusKm must be between 1 and 150.");
+  }
+
+  if (
+    minimumFieldWaySharePercent !== undefined &&
+    !isNumber(minimumFieldWaySharePercent)
+  ) {
+    errors.push("minimumFieldWaySharePercent must be a number from 0 to 100.");
+  } else if (
+    isNumber(minimumFieldWaySharePercent) &&
+    (minimumFieldWaySharePercent < 0 || minimumFieldWaySharePercent > 100)
+  ) {
+    errors.push("minimumFieldWaySharePercent must be between 0 and 100.");
   }
 
   if (
@@ -88,6 +114,12 @@ function parseRouteRequest(body: unknown): ParseResult {
       roadAvoidanceStrictness: roadAvoidanceStrictness as number,
       preferForestWays:
         typeof preferForestWays === "boolean" ? preferForestWays : false,
+      greenwayDetourRadiusKm: isNumber(greenwayDetourRadiusKm)
+        ? greenwayDetourRadiusKm
+        : undefined,
+      minimumFieldWaySharePercent: isNumber(minimumFieldWaySharePercent)
+        ? minimumFieldWaySharePercent
+        : undefined,
     },
   };
 }

@@ -23,8 +23,9 @@ void main() {
       expect(controller.start, const LatLng(lat: 51.2277, lng: 6.7735));
       expect(controller.destination, const LatLng(lat: 51.4508, lng: 7.0131));
       expect(controller.roadAvoidanceStrictness, 50);
+      expect(controller.greenwayDetourRadiusKm, 10);
+      expect(controller.minimumFieldWaySharePercent, 60);
       expect(controller.averageSpeedKmh, 18);
-      expect(controller.preferForestWays, isFalse);
       expect(controller.waypoints, isEmpty);
       expect(controller.route, isNull);
       expect(controller.isLoading, isFalse);
@@ -111,6 +112,34 @@ void main() {
       expect(controller.roadAvoidanceStrictness, 0);
     });
 
+    test('clamps greenway search radius to 5 through 12', () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.updateGreenwayDetourRadiusKm(200);
+      expect(controller.greenwayDetourRadiusKm, 12);
+
+      controller.updateGreenwayDetourRadiusKm(1);
+      expect(controller.greenwayDetourRadiusKm, 5);
+    });
+
+    test('clamps minimum field-way share to 0 through 100', () {
+      final controller = RoutePlannerController(
+        routingService: _SuccessfulRoutingService(),
+        geocodingService: _FakeGeocodingService(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.updateMinimumFieldWaySharePercent(150);
+      expect(controller.minimumFieldWaySharePercent, 100);
+
+      controller.updateMinimumFieldWaySharePercent(-20);
+      expect(controller.minimumFieldWaySharePercent, 0);
+    });
+
     test('clamps average speed to a realistic cycling range', () {
       final controller = RoutePlannerController(
         routingService: _SuccessfulRoutingService(),
@@ -123,23 +152,6 @@ void main() {
 
       controller.updateAverageSpeedKmh(2);
       expect(controller.averageSpeedKmh, 5);
-    });
-
-    test('clears stale route when forest preference changes', () async {
-      final controller = RoutePlannerController(
-        routingService: _SuccessfulRoutingService(),
-        geocodingService: _FakeGeocodingService(),
-      );
-      addTearDown(controller.dispose);
-
-      await controller.calculateRoute();
-      expect(controller.route, isNotNull);
-
-      controller.updatePreferForestWays(true);
-
-      expect(controller.preferForestWays, isTrue);
-      expect(controller.route, isNull);
-      expect(controller.errorMessage, isNull);
     });
 
     test('passes current request to RoutingService and stores result',
@@ -158,8 +170,9 @@ void main() {
         controller.waypoints.single.id,
         'Zwischenstopp Test',
       );
-      controller.updateRoadAvoidanceStrictness(75);
-      controller.updatePreferForestWays(true);
+      controller.updateRoadAvoidanceStrictness(100);
+      controller.updateGreenwayDetourRadiusKm(12);
+      controller.updateMinimumFieldWaySharePercent(80);
 
       await controller.calculateRoute();
 
@@ -171,8 +184,9 @@ void main() {
       expect(service.lastRequest?.waypoints, [
         const LatLng(lat: 50.15, lng: 7.15),
       ]);
-      expect(service.lastRequest?.roadAvoidanceStrictness, 75);
-      expect(service.lastRequest?.preferForestWays, isTrue);
+      expect(service.lastRequest?.roadAvoidanceStrictness, 100);
+      expect(service.lastRequest?.greenwayDetourRadiusKm, 12);
+      expect(service.lastRequest?.minimumFieldWaySharePercent, 80);
       expect(controller.route, service.result);
       expect(controller.isLoading, isFalse);
       expect(controller.errorMessage, isNull);

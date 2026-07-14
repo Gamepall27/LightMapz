@@ -85,7 +85,7 @@ class _MapViewState extends State<MapView> {
         '${widget.destination.lat},${widget.destination.lng}-'
         '${widget.waypoints.length}-'
         '${widget.selectedPoint?.lat},${widget.selectedPoint?.lng}-'
-        '${widget.routeGeometry.length}',
+        '${_routeGeometrySignature(widget.routeGeometry)}',
       ),
       options: MapOptions(
         initialCenter: _toMapLatLng(center),
@@ -238,6 +238,21 @@ class _MapViewState extends State<MapView> {
     widget.onMapPointSelected?.call(
       LatLng(lat: point.latitude, lng: point.longitude),
     );
+  }
+
+  String _routeGeometrySignature(List<LatLng> geometry) {
+    if (geometry.isEmpty) {
+      return 'empty';
+    }
+
+    final first = geometry.first;
+    final last = geometry.last;
+    final midpoint = geometry[geometry.length ~/ 2];
+
+    return '${geometry.length}-'
+        '${first.lat.toStringAsFixed(5)},${first.lng.toStringAsFixed(5)}-'
+        '${midpoint.lat.toStringAsFixed(5)},${midpoint.lng.toStringAsFixed(5)}-'
+        '${last.lat.toStringAsFixed(5)},${last.lng.toStringAsFixed(5)}';
   }
 
   double _min(double a, double b) {

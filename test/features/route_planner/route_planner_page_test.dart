@@ -29,8 +29,7 @@ void main() {
 
       expect(find.text('Route berechnen'), findsOneWidget);
 
-      await tester.tap(find.text('Route berechnen'));
-      await tester.pump();
+      await _tapCalculateRoute(tester);
 
       expect(service.callCount, 1);
 
@@ -70,13 +69,6 @@ void main() {
       slider.onChanged?.call(75);
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Einstellungen'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('prefer_forest_ways_checkbox')));
-      await tester.pump();
-      await tester.tap(find.text('Schließen'));
-      await tester.pumpAndSettle();
-
       await tester.drag(find.byType(ListView), const Offset(0, -280));
       await tester.pump();
       await tester.tap(find.text('Route berechnen'));
@@ -84,7 +76,57 @@ void main() {
 
       expect(service.lastRequest?.start, const LatLng(lat: 50.1, lng: 7.1));
       expect(service.lastRequest?.roadAvoidanceStrictness, 75);
-      expect(service.lastRequest?.preferForestWays, isTrue);
+    });
+
+    testWidgets('shows detour radius slider at maximum avoidance and sends it',
+        (tester) async {
+      final service = _PageTestRoutingService();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RoutePlannerPage(
+            routingService: service,
+            geocodingService: _PageTestGeocodingService(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+          find.byKey(const Key('greenway_detour_radius_slider')), findsNothing);
+
+      final roadSlider = tester.widget<Slider>(find.byType(Slider));
+      roadSlider.onChanged?.call(100);
+      await tester.pump();
+
+      expect(find.byKey(const Key('greenway_detour_radius_slider')),
+          findsOneWidget);
+
+      final radiusSlider = tester.widget<Slider>(
+        find.byKey(const Key('greenway_detour_radius_slider')),
+      );
+      radiusSlider.onChanged?.call(12);
+      await tester.pump();
+
+      await tester.drag(find.byType(ListView), const Offset(0, -180));
+      await tester.pump();
+      expect(find.byKey(const Key('minimum_field_way_share_slider')),
+          findsOneWidget);
+
+      final minimumShareSlider = tester.widget<Slider>(
+        find.byKey(const Key('minimum_field_way_share_slider')),
+      );
+      minimumShareSlider.onChanged?.call(80);
+      await tester.pump();
+
+      await tester.drag(find.byType(ListView), const Offset(0, -320));
+      await tester.pump();
+      await tester.tap(find.text('Route berechnen'));
+      await tester.pump();
+
+      expect(service.lastRequest?.roadAvoidanceStrictness, 100);
+      expect(service.lastRequest?.greenwayDetourRadiusKm, 12);
+      expect(service.lastRequest?.minimumFieldWaySharePercent, 80);
     });
 
     testWidgets('adds a waypoint and sends it to the service', (tester) async {
@@ -242,8 +284,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Route berechnen'));
-      await tester.pump();
+      await _tapCalculateRoute(tester);
       await tester.tap(find.text('Starten'));
       await tester.pump();
 
@@ -266,8 +307,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Route berechnen'));
-      await tester.pump();
+      await _tapCalculateRoute(tester);
 
       await tester.drag(find.byType(ListView), const Offset(0, -240));
       await tester.pump();
@@ -279,7 +319,7 @@ void main() {
 
       expect(find.text('Einstellungen'), findsOneWidget);
       expect(find.text('Durchschnittsgeschwindigkeit'), findsOneWidget);
-      expect(find.text('Waldwege bevorzugen'), findsOneWidget);
+      expect(find.text('Waldwege bevorzugen'), findsNothing);
 
       await tester.enterText(
           find.byKey(const Key('average_speed_field')), '20');
@@ -292,6 +332,13 @@ void main() {
       expect(find.text('20 km/h'), findsOneWidget);
     });
   });
+}
+
+Future<void> _tapCalculateRoute(WidgetTester tester) async {
+  await tester.drag(find.byType(ListView), const Offset(0, -220));
+  await tester.pump();
+  await tester.tap(find.widgetWithText(FilledButton, 'Route berechnen'));
+  await tester.pump();
 }
 
 class _PageTestGeocodingService implements GeocodingService {

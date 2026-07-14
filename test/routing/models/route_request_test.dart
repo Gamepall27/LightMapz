@@ -32,8 +32,23 @@ void main() {
         ],
         'profile': 'bike',
         'roadAvoidanceStrictness': 75,
-        'preferForestWays': false,
       });
+    });
+
+    test('serializes maximum-avoidance preferences when provided', () {
+      const request = RouteRequest(
+        start: LatLng(lat: 51.2277, lng: 6.7735),
+        destination: LatLng(lat: 51.4508, lng: 7.0131),
+        roadAvoidanceStrictness: 100,
+        greenwayDetourRadiusKm: 12,
+        minimumFieldWaySharePercent: 80,
+      );
+
+      expect(request.toJson(), containsPair('greenwayDetourRadiusKm', 12));
+      expect(
+        request.toJson(),
+        containsPair('minimumFieldWaySharePercent', 80),
+      );
     });
   });
 }
